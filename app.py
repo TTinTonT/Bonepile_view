@@ -9,9 +9,11 @@ import pandas as pd
 import numpy as np
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 import socket
+import re
+from collections import defaultdict
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -60,8 +62,123 @@ def is_waiting_for_material(text):
     if pd.isna(text):
         return False
     text_str = str(text).lower()
-    material_keywords = ['waiting for material', 'strata', 'cx9']
+    # Check for "waiting for material", "waiting for cx9", or "waiting for strata"
+    material_keywords = ['waiting for material', 'waiting for cx9', 'waiting for strata']
     return any(keyword in text_str for keyword in material_keywords)
+
+# Function to normalize WO format
+def normalize_wo(wo_str):
+    """Normalize WO format: '000007016682-1' -> '7016682'"""
+    if pd.isna(wo_str) or not wo_str:
+        return ''
+    wo_str = str(wo_str).strip()
+    # Remove prefix "00000" if exists
+    if wo_str.startswith('00000'):
+        wo_str = wo_str[5:]
+    # Remove suffix "-1" or "-X" if exists
+    if '-' in wo_str:
+        wo_str = wo_str.split('-')[0]
+    return wo_str
+
+# Function to parse date from text (format: MM/DD or M/D)
+def parse_date_from_text(text):
+    """Parse date from text like '12/24', '12/29', '1/5' etc."""
+    if pd.isna(text):
+        return None
+    text_str = str(text).strip()
+    # Pattern: MM/DD or M/D (with optional year)
+    pattern = r'(\d{1,2})/(\d{1,2})(?:\s|$|:)'
+    match = re.search(pattern, text_str)
+    if match:
+        month = int(match.group(1))
+        day = int(match.group(2))
+        # Assume current year or previous year if month > current month
+        current_year = datetime.now().year
+        try:
+            date = datetime(current_year, month, day)
+            if date > datetime.now():
+                date = datetime(current_year - 1, month, day)
+            return date
+        except ValueError:
+            return None
+    return None
+
+# Function to parse all dispositions from text
+def parse_dispositions_from_text(text):
+    """Parse all dispositions from text, return list of (date, description) tuples"""
+    if pd.isna(text):
+        return []
+    text_str = str(text)
+    dispositions = []
+    # Improved pattern to match various formats:
+    # - "12/24: description"
+    # - "12/24 description" (without colon)
+    # - "12/26 9pm: description"
+    # - "12/29: [Name] description"
+    # Pattern matches: MM/DD (optional time) (optional colon) description
+    pattern = r'(\d{1,2})/(\d{1,2})(?:\s+\d+[ap]m)?\s*:?\s*([^\n\r]+?)(?=\s*\d{1,2}/|\Z)'
+    matches = re.finditer(pattern, text_str, re.MULTILINE | re.IGNORECASE | re.DOTALL)
+    for match in matches:
+        month = int(match.group(1))
+        day = int(match.group(2))
+        description = match.group(3).strip()
+        # Remove trailing colons, extra spaces, and newlines
+        description = description.rstrip(':').strip().replace('\n', ' ').replace('\r', ' ')
+        # Clean up multiple spaces
+        description = ' '.join(description.split())
+        if not description:
+            continue
+        current_year = datetime.now().year
+        try:
+            date = datetime(current_year, month, day)
+            if date > datetime.now():
+                date = datetime(current_year - 1, month, day)
+            dispositions.append((date, description))
+        except ValueError:
+            continue
+    return dispositions
+
+# Function to get latest date from dispositions
+def get_latest_date_from_dispositions(dispositions):
+    """Get the latest date from a list of (date, description) tuples"""
+    if not dispositions:
+        return None
+    dates = [d[0] for d in dispositions if d[0] is not None]
+    if not dates:
+        return None
+    return max(dates)
+
+# Function to load FA Work Log and create SN -> WO mapping
+def load_fa_work_log():
+    """Load FA_Work_Log.xlsx and create SN -> WO mapping"""
+    sn_wo_mapping = {}
+    fa_work_log_path = 'FA_Work_Log.xlsx'
+    
+    # Check in upload folder first
+    upload_folder = app.config['UPLOAD_FOLDER']
+    fa_work_log_upload = os.path.join(upload_folder, 'FA_Work_Log.xlsx')
+    
+    if os.path.exists(fa_work_log_upload):
+        fa_work_log_path = fa_work_log_upload
+    elif not os.path.exists(fa_work_log_path):
+        return sn_wo_mapping
+    
+    try:
+        df = pd.read_excel(fa_work_log_path, sheet_name='Log')
+        # Column B = SN (index 1), Column C = WO (index 2)
+        if len(df.columns) >= 3:
+            for idx, row in df.iterrows():
+                sn = row.iloc[1]  # Column B
+                wo = row.iloc[2]  # Column C
+                if pd.notna(sn) and pd.notna(wo):
+                    sn_str = str(sn).strip().replace('.0', '')
+                    wo_str = normalize_wo(wo)  # Normalize WO format
+                    if sn_str:
+                        sn_wo_mapping[sn_str] = wo_str
+    except Exception as e:
+        print(f"Error loading FA Work Log: {e}")
+    
+    return sn_wo_mapping
 
 # Load data
 def load_data(filename=None):
@@ -105,27 +222,140 @@ def load_data(filename=None):
     # Filter valid SN
     valid_sn_records = df[df[sn_col].apply(is_valid_sn)].copy()
     
-    # Get unique SNs
+    # Load FA Work Log mapping
+    sn_wo_mapping = load_fa_work_log()
+    
+    # Get unique SNs (total trays in BP)
     unique_sns = valid_sn_records[sn_col].unique()
     
-    # Fail records
-    fail_records = valid_sn_records[
-        (valid_sn_records[pic_col].str.upper() == 'IGS') & 
-        (valid_sn_records[result_col].str.upper() == 'FAIL')
+    # Calculate dispositions (only when IGS Action has value)
+    # Filter records where IGS Action column is not empty
+    records_with_igs_action = valid_sn_records[
+        (valid_sn_records[igs_action_col].notna()) & 
+        (valid_sn_records[igs_action_col].astype(str).str.strip() != '') &
+        (valid_sn_records[igs_action_col].astype(str).str.strip() != 'nan')
     ].copy()
     
-    unique_fail_sns = set(fail_records[sn_col].unique())
-    unique_pass_sns = set(unique_sns) - unique_fail_sns
+    all_dispositions = []  # List of all dispositions with details
+    disposition_by_row = {}  # Map row index to list of dispositions
     
-    # Fail with empty IGS Action
-    fail_with_empty_action = fail_records[
-        (fail_records[igs_action_col].isna()) | 
-        (fail_records[igs_action_col].astype(str).str.strip() == '') |
-        (fail_records[igs_action_col].astype(str).str.strip() == 'nan')
+    for idx, row in records_with_igs_action.iterrows():
+        sn = row[sn_col]
+        sn_str = str(int(sn)) if isinstance(sn, (int, float)) else str(sn).strip().replace('.0', '')
+        nv_disp_text = row[nv_disposition_col] if pd.notna(row[nv_disposition_col]) else ''
+        igs_action_text = row[igs_action_col] if pd.notna(row[igs_action_col]) else ''
+        igs_status_text = row[igs_status_col] if pd.notna(row[igs_status_col]) else ''
+        result_text = row[result_col] if pd.notna(row[result_col]) else ''
+        
+        # Parse dispositions from NV Disposition column
+        nv_dispositions = parse_dispositions_from_text(str(nv_disp_text))
+        # Parse dispositions from IGS Action column
+        igs_action_dispositions = parse_dispositions_from_text(str(igs_action_text))
+        
+        # Get latest dates
+        latest_nv_date = get_latest_date_from_dispositions(nv_dispositions)
+        latest_igs_date = get_latest_date_from_dispositions(igs_action_dispositions)
+        
+        # Check if IGS Action is empty (after parsing)
+        is_igs_action_empty = (not igs_action_text or 
+                              str(igs_action_text).strip() == '' or 
+                              str(igs_action_text).strip().lower() == 'nan' or
+                              latest_igs_date is None)
+        
+        # Check IGS Status for completion indicators
+        igs_status_lower = str(igs_status_text).lower()
+        result_lower = str(result_text).upper().strip()
+        
+        # Check if completed based on new logic:
+        # 1. If IGS Action is empty but IGS Status is "waiting for NV disposition" or result is PASS/ALL PASS → completed
+        # 2. If both dates exist: only not completed if latest_igs_date < latest_nv_date (and still FAIL)
+        # 3. Otherwise: completed if latest_igs_date >= latest_nv_date
+        is_completed = False
+        
+        if is_igs_action_empty:
+            # IGS Action is empty, check IGS Status or Result
+            if ('waiting for nv disposition' in igs_status_lower or 
+                'waiting for nv disp' in igs_status_lower or
+                result_lower == 'PASS' or 
+                result_lower == 'ALL PASS'):
+                is_completed = True
+            else:
+                is_completed = False
+        elif latest_igs_date is not None and latest_nv_date is not None:
+            # Both dates exist: only not completed if latest_igs_date < latest_nv_date (and still FAIL)
+            if latest_igs_date < latest_nv_date and result_lower == 'FAIL':
+                is_completed = False
+            else:
+                is_completed = True  # latest_igs_date >= latest_nv_date or not FAIL
+        elif latest_igs_date is not None and latest_nv_date is None:
+            is_completed = True  # Has action but no disposition
+        else:
+            is_completed = False  # No action date = not completed
+        
+        # Store dispositions for this row
+        row_dispositions = []
+        for date, desc in nv_dispositions:
+            wo = sn_wo_mapping.get(sn_str, '')
+            # Normalize WO if it exists
+            if wo:
+                wo = normalize_wo(wo)
+            row_dispositions.append({
+                'date': date,
+                'description': desc,
+                'sn': sn_str,
+                'wo': wo,
+                'row_idx': idx
+            })
+            all_dispositions.append({
+                'date': date,
+                'description': desc,
+                'sn': sn_str,
+                'wo': wo,
+                'row_idx': idx,
+                'is_completed': is_completed
+            })
+        
+        # Debug: print if no dispositions found but text exists
+        if not nv_dispositions and nv_disp_text and str(nv_disp_text).strip():
+            print(f"Warning: No dispositions parsed from row {idx}, SN: {sn_str}")
+            print(f"  Text: {str(nv_disp_text)[:200]}...")
+        
+        disposition_by_row[idx] = {
+            'dispositions': row_dispositions,
+            'is_completed': is_completed,
+            'latest_nv_date': latest_nv_date,
+            'latest_igs_date': latest_igs_date,
+            'sn': sn_str
+        }
+    
+    # Fail records: COUNTIF(result="FAIL") - đếm số dòng có result = FAIL
+    fail_records = valid_sn_records[
+        valid_sn_records[result_col].astype(str).str.upper().str.strip() == 'FAIL'
+    ].copy()
+    
+    # Pass records: COUNTIF(result="ALL PASS") - đếm số dòng có result = ALL PASS
+    pass_records = valid_sn_records[
+        valid_sn_records[result_col].astype(str).str.upper().str.strip() == 'ALL PASS'
+    ].copy()
+    
+    # Get unique SNs for fail and pass
+    unique_fail_sns = set(fail_records[sn_col].unique())
+    unique_pass_sns = set(pass_records[sn_col].unique())
+    
+    # Fail records with PIC = IGS (for IGS Action/Status analysis)
+    fail_igs_records = fail_records[
+        fail_records[pic_col].astype(str).str.upper().str.strip() == 'IGS'
+    ].copy()
+    
+    # Fail with empty IGS Action (only for IGS records)
+    fail_with_empty_action = fail_igs_records[
+        (fail_igs_records[igs_action_col].isna()) | 
+        (fail_igs_records[igs_action_col].astype(str).str.strip() == '') |
+        (fail_igs_records[igs_action_col].astype(str).str.strip() == 'nan')
     ]
     
-    # In process dispositions
-    fail_with_action = fail_records[~fail_records[sn_col].isin(set(fail_with_empty_action[sn_col].unique()))]
+    # In process dispositions (only for IGS records)
+    fail_with_action = fail_igs_records[~fail_igs_records[sn_col].isin(set(fail_with_empty_action[sn_col].unique()))]
     in_process_records = fail_with_action[
         fail_with_action[igs_status_col].apply(is_in_process)
     ]
@@ -136,15 +366,57 @@ def load_data(filename=None):
         in_process_records[igs_action_col].apply(is_waiting_for_material)
     ]
     
+    # Current dispositions (result = FAIL, PIC = IGS)
+    # Completed if IGS Status doesn't have "testing" or "waiting" (except "waiting for disposition")
+    current_dispositions_completed = []
+    current_dispositions_waiting = []
+    current_dispositions_waiting_material = []
+    
+    for idx, row in fail_igs_records.iterrows():
+        sn = row[sn_col]
+        sn_str = str(int(sn)) if isinstance(sn, (int, float)) else str(sn).strip().replace('.0', '')
+        igs_status = row[igs_status_col] if pd.notna(row[igs_status_col]) else ''
+        igs_status_lower = str(igs_status).lower()
+        
+        wo = sn_wo_mapping.get(sn_str, '')
+        # Normalize WO if it exists
+        if wo:
+            wo = normalize_wo(wo)
+        
+        disposition_info = {
+            'sn': sn_str,
+            'wo': wo,
+            'igs_status': str(igs_status),
+            'row_idx': idx
+        }
+        
+        # Check if waiting for material
+        if 'waiting for material' in igs_status_lower or 'waiting for strata' in igs_status_lower or 'waiting for cx9' in igs_status_lower:
+            current_dispositions_waiting_material.append(disposition_info)
+        # Check if waiting/testing (but not "waiting for disposition")
+        elif ('testing' in igs_status_lower or 'waiting' in igs_status_lower) and 'waiting for disposition' not in igs_status_lower:
+            current_dispositions_waiting.append(disposition_info)
+        # Otherwise completed
+        else:
+            current_dispositions_completed.append(disposition_info)
+    
     return {
         'df': valid_sn_records,
         'unique_sns': unique_sns,
         'unique_fail_sns': unique_fail_sns,
         'unique_pass_sns': unique_pass_sns,
-        'fail_records': fail_records,
+        'fail_records': fail_records,  # Tất cả fail (result = FAIL)
+        'pass_records': pass_records,  # Tất cả pass (result = PASS)
+        'fail_igs_records': fail_igs_records,  # Fail với PIC = IGS
         'fail_with_empty_action': fail_with_empty_action,
         'in_process_records': in_process_records,
         'waiting_material_records': waiting_material_records,
+        'all_dispositions': all_dispositions,  # Tất cả dispositions với chi tiết
+        'disposition_by_row': disposition_by_row,  # Disposition theo row
+        'sn_wo_mapping': sn_wo_mapping,  # Mapping SN -> WO
+        'current_dispositions_completed': current_dispositions_completed,
+        'current_dispositions_waiting': current_dispositions_waiting,
+        'current_dispositions_waiting_material': current_dispositions_waiting_material,
         'cols': {
             'sn': sn_col,
             'nv_disposition': nv_disposition_col,
@@ -164,12 +436,18 @@ def index():
         # Calculate statistics
         fail_empty_sns = set(data['fail_with_empty_action'][data['cols']['sn']].unique()) if len(data['fail_with_empty_action']) > 0 else set()
         
+        # Calculate disposition statistics
+        total_dispositions = len(data['all_dispositions']) if 'all_dispositions' in data else 0
+        completed_dispositions = sum(1 for d in data['all_dispositions'] if d['is_completed']) if 'all_dispositions' in data else 0
+        
         stats = {
-            'total_trays': len(data['unique_sns']),
-            'total_fail': len(data['unique_fail_sns']),
-            'total_pass': len(data['unique_pass_sns']),
-            'total_dispositions': len(data['df']),
-            'completed_dispositions': len(data['df']) - len(fail_empty_sns),
+            'total_trays': len(data['unique_sns']),  # Tổng số tray = số unique SN
+            'total_fail': len(data['fail_records']),  # COUNTIF(result="FAIL") - số dòng có result = FAIL
+            'total_pass': len(data['pass_records']),  # COUNTIF(result="ALL PASS") - số dòng có result = ALL PASS
+            'total_fail_unique': len(data['unique_fail_sns']),  # Số unique SN fail
+            'total_pass_unique': len(data['unique_pass_sns']),  # Số unique SN pass
+            'total_dispositions': total_dispositions,
+            'completed_dispositions': completed_dispositions,
             'fail_empty_action': len(fail_empty_sns),
             'in_process': len(data['in_process_records']),
             'in_process_unique': len(set(data['in_process_records'][data['cols']['sn']].unique())) if len(data['in_process_records']) > 0 else 0,
@@ -181,8 +459,8 @@ def index():
         fail_empty_action_sns = fail_empty_sns
         completed_records = data['df'][
             ~(data['df'][data['cols']['sn']].isin(fail_empty_action_sns) & 
-              (data['df']['PIC'].str.upper() == 'IGS') & 
-              (data['df']['result'].str.upper() == 'FAIL'))
+              (data['df']['PIC'].astype(str).str.upper().str.strip() == 'IGS') & 
+              (data['df']['result'].astype(str).str.upper().str.strip() == 'FAIL'))
         ]
         
         bp_durations = []
@@ -209,26 +487,32 @@ def index():
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_file():
     if request.method == 'POST':
-        if 'file' not in request.files:
-            flash('No file part')
-            return redirect(request.url)
+        uploaded_files = []
         
-        file = request.files['file']
-        if file.filename == '':
-            flash('No selected file')
-            return redirect(request.url)
+        # Handle NV_IGS_VR144_Bonepile.xlsx
+        if 'file_bonepile' in request.files:
+            file = request.files['file_bonepile']
+            if file and file.filename != '' and allowed_file(file.filename):
+                filename = 'NV_IGS_VR144_Bonepile.xlsx'
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(filepath)
+                uploaded_files.append('NV_IGS_VR144_Bonepile.xlsx')
         
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            # Save with a fixed name so we always use the latest upload
-            filename = 'NV_IGS_VR144_Bonepile.xlsx'
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
-            flash('File uploaded successfully!')
-            return redirect(url_for('index'))
+        # Handle FA_Work_Log.xlsx
+        if 'file_fa_work_log' in request.files:
+            file = request.files['file_fa_work_log']
+            if file and file.filename != '' and allowed_file(file.filename):
+                filename = 'FA_Work_Log.xlsx'
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(filepath)
+                uploaded_files.append('FA_Work_Log.xlsx')
+        
+        if uploaded_files:
+            flash(f'Files uploaded successfully: {", ".join(uploaded_files)}')
         else:
-            flash('Invalid file type. Please upload .xlsx or .xls file.')
-            return redirect(request.url)
+            flash('No valid files uploaded. Please upload .xlsx or .xls files.')
+        
+        return redirect(url_for('index'))
     
     return render_template('upload.html', ip=get_local_ip())
 
@@ -324,6 +608,212 @@ def get_waiting_material():
             })
         
         return jsonify({'data': result, 'count': len(result)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/disposition-stats')
+def get_disposition_stats():
+    """Get disposition statistics with filters for date range and WO"""
+    try:
+        data = load_data()
+        if data is None:
+            return jsonify({'error': 'No data available'}), 404
+        
+        # Get filter parameters
+        start_date_str = request.args.get('start_date', '')
+        end_date_str = request.args.get('end_date', '')
+        wo_filter = request.args.get('wo', '')
+        
+        # Parse dates
+        start_date = None
+        end_date = None
+        if start_date_str:
+            try:
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            except:
+                pass
+        if end_date_str:
+            try:
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+                # Include the entire end date
+                end_date = end_date + timedelta(days=1)
+            except:
+                pass
+        
+        # Filter dispositions
+        filtered_dispositions = []
+        for disp in data['all_dispositions']:
+            # Filter by date
+            if start_date and disp['date'] < start_date:
+                continue
+            if end_date and disp['date'] >= end_date:
+                continue
+            # Filter by WO
+            if wo_filter and wo_filter != 'ALL' and disp['wo'] != wo_filter:
+                continue
+            filtered_dispositions.append(disp)
+        
+        # Calculate statistics
+        total_dispositions = len(filtered_dispositions)
+        completed_dispositions = sum(1 for d in filtered_dispositions if d['is_completed'])
+        
+        # Calculate average per day/week
+        if filtered_dispositions:
+            dates = [d['date'] for d in filtered_dispositions]
+            min_date = min(dates)
+            max_date = max(dates)
+            days_diff = (max_date - min_date).days + 1
+            weeks_diff = days_diff / 7.0
+            
+            avg_per_day = total_dispositions / days_diff if days_diff > 0 else 0
+            avg_per_week = total_dispositions / weeks_diff if weeks_diff > 0 else 0
+        else:
+            avg_per_day = 0
+            avg_per_week = 0
+        
+        # Get unique WOs and dates for dropdowns
+        unique_wos = sorted(set([d['wo'] for d in data['all_dispositions'] if d['wo']]))
+        unique_dates = sorted(set([d['date'].strftime('%Y-%m-%d') for d in data['all_dispositions']]))
+        
+        return jsonify({
+            'total_dispositions': total_dispositions,
+            'completed_dispositions': completed_dispositions,
+            'pending_dispositions': total_dispositions - completed_dispositions,
+            'avg_per_day': round(avg_per_day, 2),
+            'avg_per_week': round(avg_per_week, 2),
+            'unique_wos': unique_wos,
+            'unique_dates': unique_dates
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/current-dispositions')
+def get_current_dispositions():
+    """Get current dispositions (result = FAIL, PIC = IGS) with status"""
+    try:
+        data = load_data()
+        if data is None:
+            return jsonify({'error': 'No data available'}), 404
+        
+        return jsonify({
+            'completed': data['current_dispositions_completed'],
+            'waiting': data['current_dispositions_waiting'],
+            'waiting_material': data['current_dispositions_waiting_material'],
+            'total_completed': len(data['current_dispositions_completed']),
+            'total_waiting': len(data['current_dispositions_waiting']),
+            'total_waiting_material': len(data['current_dispositions_waiting_material'])
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/all-dispositions')
+def get_all_dispositions():
+    """Get all dispositions for debugging"""
+    try:
+        data = load_data()
+        if data is None:
+            return jsonify({'error': 'No data available'}), 404
+        
+        # Format dispositions for display
+        dispositions_list = []
+        for disp in data.get('all_dispositions', []):
+            dispositions_list.append({
+                'date': disp['date'].strftime('%Y-%m-%d') if disp['date'] else '',
+                'description': disp['description'],
+                'sn': disp['sn'],
+                'wo': disp['wo'],
+                'is_completed': disp['is_completed'],
+                'row_idx': disp['row_idx']
+            })
+        
+        # Sort by date
+        dispositions_list.sort(key=lambda x: x['date'] if x['date'] else '')
+        
+        return jsonify({
+            'data': dispositions_list,
+            'total': len(dispositions_list),
+            'completed': sum(1 for d in dispositions_list if d['is_completed']),
+            'pending': sum(1 for d in dispositions_list if not d['is_completed'])
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/wo-statistics')
+def get_wo_statistics():
+    """Get statistics grouped by WO"""
+    try:
+        data = load_data()
+        if data is None:
+            return jsonify({'error': 'No data available'}), 404
+        
+        # Group by WO
+        wo_stats = {}
+        sn_wo_mapping = data.get('sn_wo_mapping', {})
+        
+        # Count trays (unique SN) by WO
+        for sn in data['unique_sns']:
+            sn_str = str(int(sn)) if isinstance(sn, (int, float)) else str(sn).strip().replace('.0', '')
+            wo = sn_wo_mapping.get(sn_str, '')
+            if wo:
+                wo = normalize_wo(wo)
+            if not wo:
+                wo = 'No WO'
+            
+            if wo not in wo_stats:
+                wo_stats[wo] = {
+                    'wo': wo,
+                    'tray_pass': 0,
+                    'tray_fail': 0,
+                    'dispositions': 0,
+                    'dispositions_completed': 0
+                }
+        
+        # Count pass/fail trays by WO
+        for sn in data['unique_pass_sns']:
+            sn_str = str(int(sn)) if isinstance(sn, (int, float)) else str(sn).strip().replace('.0', '')
+            wo = sn_wo_mapping.get(sn_str, '')
+            if wo:
+                wo = normalize_wo(wo)
+            if not wo:
+                wo = 'No WO'
+            if wo in wo_stats:
+                wo_stats[wo]['tray_pass'] += 1
+        
+        for sn in data['unique_fail_sns']:
+            sn_str = str(int(sn)) if isinstance(sn, (int, float)) else str(sn).strip().replace('.0', '')
+            wo = sn_wo_mapping.get(sn_str, '')
+            if wo:
+                wo = normalize_wo(wo)
+            if not wo:
+                wo = 'No WO'
+            if wo in wo_stats:
+                wo_stats[wo]['tray_fail'] += 1
+        
+        # Count dispositions by WO
+        for disp in data.get('all_dispositions', []):
+            wo = disp.get('wo', '')
+            if not wo:
+                wo = 'No WO'
+            if wo not in wo_stats:
+                wo_stats[wo] = {
+                    'wo': wo,
+                    'tray_pass': 0,
+                    'tray_fail': 0,
+                    'dispositions': 0,
+                    'dispositions_completed': 0
+                }
+            wo_stats[wo]['dispositions'] += 1
+            if disp.get('is_completed', False):
+                wo_stats[wo]['dispositions_completed'] += 1
+        
+        # Convert to list and sort
+        wo_list = list(wo_stats.values())
+        wo_list.sort(key=lambda x: x['wo'])
+        
+        return jsonify({
+            'data': wo_list,
+            'total_wo': len(wo_list)
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -217,12 +217,13 @@
         <div class="note-box">
             <strong>📋 Statistics Logic:</strong><br>
             • Valid SN: Format 183XXXXXXXX (13 digits, starts with 183)<br>
-            • Fail: PIC = IGS and result = FAIL<br>
-            • Pass: Total unique SN - Fail unique<br>
+            • Total Trays: Count unique SN (total trays in BP)<br>
+            • Fail Records: COUNTIF(result="FAIL") - count rows with result = FAIL<br>
+            • Pass Records: COUNTIF(result="ALL PASS") - count rows with result = ALL PASS<br>
             • Disposition: Each row with valid SN = 1 disposition (count duplicates)<br>
             • Completed disposition: Total disposition - SN Fail with empty IGS Action<br>
             • In process: IGS Status contains "waiting", "testing", "in process", "in progress"<br>
-            • Waiting for material: Contains "waiting for material", "strata", "cx9"
+            • Waiting for material: Contains "waiting for material", "waiting for cx9", or "waiting for strata"
         </div>
         {% endif %}
         
@@ -235,47 +236,111 @@
                 <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view list</div>
             </div>
             <div class="metric-box warning" onclick="showSNList('fail')">
-                <div class="metric-label">Tray Fail (Unique)</div>
+                <div class="metric-label">Fail Records</div>
                 <div class="metric-value">{{ stats.total_fail }}</div>
+                <div class="metric-label" style="font-size: 11px; margin-top: 5px;">({{ stats.total_fail_unique }} unique SN)</div>
                 <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view list</div>
             </div>
             <div class="metric-box success" onclick="showSNList('pass')">
-                <div class="metric-label">Tray Pass (Unique)</div>
+                <div class="metric-label">Pass Records</div>
                 <div class="metric-value">{{ stats.total_pass }}</div>
+                <div class="metric-label" style="font-size: 11px; margin-top: 5px;">({{ stats.total_pass_unique }} unique SN)</div>
                 <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view list</div>
             </div>
         </div>
         
         {% if stats %}
+        <h2>2. TRAY STATISTICS</h2>
         <div class="chart-container">
             <canvas id="trayChart"></canvas>
         </div>
         
-        <h2>2. DISPOSITION STATISTICS</h2>
-        <div class="metric-grid">
-            <div class="metric-box info">
-                <div class="metric-label">Total Dispositions</div>
-                <div class="metric-value">{{ stats.total_dispositions }}</div>
-                <div class="metric-label" style="font-size: 11px; margin-top: 5px;">(Each row with valid SN = 1)</div>
+        <h2>3. WO STATISTICS</h2>
+        <div class="chart-container">
+            <canvas id="woChart"></canvas>
+        </div>
+        
+        <h2>4. DISPOSITION STATISTICS</h2>
+        <div style="background: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
+            <h3 style="margin-bottom: 15px;">Filters</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                <div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Start Date:</label>
+                    <select id="filter-start-date" style="width: 100%; padding: 8px; border-radius: 5px; border: 1px solid #ddd;">
+                        <option value="">ALL</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">End Date:</label>
+                    <select id="filter-end-date" style="width: 100%; padding: 8px; border-radius: 5px; border: 1px solid #ddd;">
+                        <option value="">ALL</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">WO:</label>
+                    <select id="filter-wo" style="width: 100%; padding: 8px; border-radius: 5px; border: 1px solid #ddd;">
+                        <option value="">ALL</option>
+                    </select>
+                </div>
             </div>
-            <div class="metric-box success">
-                <div class="metric-label">Completed Dispositions</div>
-                <div class="metric-value">{{ stats.completed_dispositions }}</div>
-            </div>
-            <div class="metric-box warning" onclick="showFailEmptyAction()">
-                <div class="metric-label">SN Fail with Empty IGS Action</div>
-                <div class="metric-value">{{ stats.fail_empty_action }}</div>
-                <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="loadDispositionStats()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">Apply Filters</button>
+                <button onclick="showAllDispositions()" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">🔍 View All Dispositions (Debug)</button>
             </div>
         </div>
         
-        <div class="chart-container">
-            <canvas id="dispositionChart"></canvas>
+        <div id="disposition-stats-results" style="display: none;">
+            <div class="metric-grid">
+                <div class="metric-box info" onclick="showDispositionsByStatus('all')" style="cursor: pointer;">
+                    <div class="metric-label">Total Dispositions</div>
+                    <div class="metric-value" id="stat-total-dispositions">0</div>
+                    <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view all</div>
+                </div>
+                <div class="metric-box success" onclick="showDispositionsByStatus('completed')" style="cursor: pointer;">
+                    <div class="metric-label">Completed Dispositions</div>
+                    <div class="metric-value" id="stat-completed-dispositions">0</div>
+                    <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
+                </div>
+                <div class="metric-box warning" onclick="showDispositionsByStatus('pending')" style="cursor: pointer;">
+                    <div class="metric-label">Pending Dispositions</div>
+                    <div class="metric-value" id="stat-pending-dispositions">0</div>
+                    <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
+                </div>
+                <div class="metric-box info">
+                    <div class="metric-label">Avg per Day</div>
+                    <div class="metric-value" id="stat-avg-per-day">0</div>
+                </div>
+                <div class="metric-box info">
+                    <div class="metric-label">Avg per Week</div>
+                    <div class="metric-value" id="stat-avg-per-week">0</div>
+                </div>
+            </div>
+        </div>
+        
+        <h2>3. CURRENT DISPOSITIONS</h2>
+        <div id="current-dispositions-results" style="display: none;">
+            <div class="metric-grid">
+                <div class="metric-box success" onclick="showCurrentDispositions('completed')" style="cursor: pointer;">
+                    <div class="metric-label">Completed</div>
+                    <div class="metric-value" id="current-completed">0</div>
+                    <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
+                </div>
+                <div class="metric-box warning" onclick="showCurrentDispositions('waiting')" style="cursor: pointer;">
+                    <div class="metric-label">Waiting</div>
+                    <div class="metric-value" id="current-waiting">0</div>
+                    <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
+                </div>
+                <div class="metric-box warning" onclick="showCurrentDispositions('waiting_material')" style="cursor: pointer;">
+                    <div class="metric-label">Waiting for Material</div>
+                    <div class="metric-value" id="current-waiting-material">0</div>
+                    <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
+                </div>
+            </div>
         </div>
         {% endif %}
         
         {% if stats %}
-        <h2>3. IN-PROCESS DISPOSITIONS</h2>
+        <h2>6. IN-PROCESS DISPOSITIONS</h2>
         <div class="metric-grid">
             <div class="metric-box info" onclick="showInProcess()">
                 <div class="metric-label">In Process Dispositions</div>
@@ -291,7 +356,7 @@
             </div>
         </div>
         
-        <h2>4. AVERAGE DURATION</h2>
+        <h2>7. AVERAGE DURATION</h2>
         <div class="summary">
             <table>
                 <tr><th>Metric</th><th>Value</th></tr>
@@ -303,6 +368,7 @@
                 <tr><td>Standard Deviation</td><td>{{ "%.2f"|format(stats.std_duration) }} days</td></tr>
             </table>
         </div>
+        {% endif %}
         {% endif %}
     </div>
     
@@ -316,68 +382,21 @@
     
     <script>
         // Set generated time
-        document.getElementById('generated-time').textContent = new Date().toLocaleString();
-        
-        {% if stats %}
-        // Charts
-        const trayCtx = document.getElementById('trayChart').getContext('2d');
-        new Chart(trayCtx, {
-            type: 'pie',
-            data: {
-                labels: ['Pass', 'Fail'],
-                datasets: [{
-                    data: [{{ stats.total_pass }}, {{ stats.total_fail }}],
-                    backgroundColor: ['#38ef7d', '#f5576c'],
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: 'Tray Distribution (Pass vs Fail)'
-                    }
-                }
+        document.addEventListener('DOMContentLoaded', function() {
+            const generatedTimeEl = document.getElementById('generated-time');
+            if (generatedTimeEl) {
+                generatedTimeEl.textContent = new Date().toLocaleString();
             }
         });
         
-        const dispositionCtx = document.getElementById('dispositionChart').getContext('2d');
-        new Chart(dispositionCtx, {
-            type: 'bar',
-            data: {
-                labels: ['Total', 'Completed', 'Fail Empty Action'],
-                datasets: [{
-                    label: 'Dispositions',
-                    data: [{{ stats.total_dispositions }}, {{ stats.completed_dispositions }}, {{ stats.fail_empty_action }}],
-                    backgroundColor: ['#4facfe', '#38ef7d', '#f5576c'],
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: 'Disposition Statistics'
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true
-                    }
-                }
-            }
-        });
-        
-        // Modal functions
+        // Modal functions - always available
         const modal = document.getElementById('modal');
         const closeBtn = document.querySelector('.close');
         
-        closeBtn.onclick = function() {
-            modal.style.display = 'none';
+        if (closeBtn) {
+            closeBtn.onclick = function() {
+                if (modal) modal.style.display = 'none';
+            }
         }
         
         window.onclick = function(event) {
@@ -391,9 +410,15 @@
                 .then(response => response.json())
                 .then(data => {
                     const modalBody = document.getElementById('modal-body');
-                    modalBody.innerHTML = `<h2>${category.toUpperCase()} Trays (${data.count} total)</h2>
-                        <div class="sn-list">${data.sns.map(sn => `<div class="sn-item">${sn}</div>`).join('')}</div>`;
-                    modal.style.display = 'block';
+                    if (modalBody && modal) {
+                        modalBody.innerHTML = `<h2>${category.toUpperCase()} Trays (${data.count} total)</h2>
+                            <div class="sn-list">${data.sns.map(sn => `<div class="sn-item">${sn}</div>`).join('')}</div>`;
+                        modal.style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching SN list:', error);
+                    alert('Error loading data. Please try again.');
                 });
         }
         
@@ -402,17 +427,23 @@
                 .then(response => response.json())
                 .then(data => {
                     const modalBody = document.getElementById('modal-body');
-                    modalBody.innerHTML = `<h2>SN Fail with Empty IGS Action (${data.count} total)</h2>
-                        <table>
-                            <tr><th>SN</th><th>NV Disposition</th></tr>
-                            ${data.data.map(item => `
-                                <tr>
-                                    <td>${item.sn}</td>
-                                    <td>${item.nv_disposition}</td>
-                                </tr>
-                            `).join('')}
-                        </table>`;
-                    modal.style.display = 'block';
+                    if (modalBody && modal) {
+                        modalBody.innerHTML = `<h2>SN Fail with Empty IGS Action (${data.count} total)</h2>
+                            <table>
+                                <tr><th>SN</th><th>NV Disposition</th></tr>
+                                ${data.data.map(item => `
+                                    <tr>
+                                        <td>${item.sn}</td>
+                                        <td>${item.nv_disposition}</td>
+                                    </tr>
+                                `).join('')}
+                            </table>`;
+                        modal.style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching fail empty action:', error);
+                    alert('Error loading data. Please try again.');
                 });
         }
         
@@ -421,18 +452,24 @@
                 .then(response => response.json())
                 .then(data => {
                     const modalBody = document.getElementById('modal-body');
-                    modalBody.innerHTML = `<h2>In Process Dispositions (${data.count} total)</h2>
-                        <table>
-                            <tr><th>SN</th><th>NV Disposition</th><th>IGS Action</th></tr>
-                            ${data.data.map(item => `
-                                <tr>
-                                    <td>${item.sn}</td>
-                                    <td>${item.nv_disposition}</td>
-                                    <td>${item.igs_action}</td>
-                                </tr>
-                            `).join('')}
-                        </table>`;
-                    modal.style.display = 'block';
+                    if (modalBody && modal) {
+                        modalBody.innerHTML = `<h2>In Process Dispositions (${data.count} total)</h2>
+                            <table>
+                                <tr><th>SN</th><th>NV Disposition</th><th>IGS Action</th></tr>
+                                ${data.data.map(item => `
+                                    <tr>
+                                        <td>${item.sn}</td>
+                                        <td>${item.nv_disposition}</td>
+                                        <td>${item.igs_action}</td>
+                                    </tr>
+                                `).join('')}
+                            </table>`;
+                        modal.style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching in-process:', error);
+                    alert('Error loading data. Please try again.');
                 });
         }
         
@@ -441,21 +478,422 @@
                 .then(response => response.json())
                 .then(data => {
                     const modalBody = document.getElementById('modal-body');
-                    modalBody.innerHTML = `<h2>Waiting for Material (${data.count} total)</h2>
-                        <table>
-                            <tr><th>SN</th><th>NV Disposition</th><th>IGS Action</th><th>IGS Status</th></tr>
-                            ${data.data.map(item => `
-                                <tr>
-                                    <td>${item.sn}</td>
-                                    <td>${item.nv_disposition}</td>
-                                    <td>${item.igs_action}</td>
-                                    <td>${item.igs_status}</td>
-                                </tr>
-                            `).join('')}
-                        </table>`;
-                    modal.style.display = 'block';
+                    if (modalBody && modal) {
+                        modalBody.innerHTML = `<h2>Waiting for Material (${data.count} total)</h2>
+                            <table>
+                                <tr><th>SN</th><th>NV Disposition</th><th>IGS Action</th><th>IGS Status</th></tr>
+                                ${data.data.map(item => `
+                                    <tr>
+                                        <td>${item.sn}</td>
+                                        <td>${item.nv_disposition}</td>
+                                        <td>${item.igs_action}</td>
+                                        <td>${item.igs_status}</td>
+                                    </tr>
+                                `).join('')}
+                            </table>`;
+                        modal.style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching waiting material:', error);
+                    alert('Error loading data. Please try again.');
                 });
+        }
+        
+        {% if stats %}
+        // Charts - only initialize if stats exist
+        document.addEventListener('DOMContentLoaded', function() {
+            const trayChartEl = document.getElementById('trayChart');
+            if (trayChartEl) {
+                const trayCtx = trayChartEl.getContext('2d');
+                const totalTrays = {{ stats.total_pass }} + {{ stats.total_fail }};
+                const passPercent = totalTrays > 0 ? (({{ stats.total_pass }} / totalTrays) * 100).toFixed(1) : 0;
+                const failPercent = totalTrays > 0 ? (({{ stats.total_fail }} / totalTrays) * 100).toFixed(1) : 0;
+                
+                new Chart(trayCtx, {
+                    type: 'pie',
+                    data: {
+                        labels: [`Pass (${passPercent}%)`, `Fail (${failPercent}%)`],
+                        datasets: [{
+                            data: [{{ stats.total_pass }}, {{ stats.total_fail }}],
+                            backgroundColor: ['#38ef7d', '#f5576c'],
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Tray Distribution (Pass vs Fail)'
+                            },
+                            legend: {
+                                display: true,
+                                position: 'bottom'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.label || '';
+                                        const value = context.parsed || 0;
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                        return `${label}: ${value} (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // WO Statistics Chart
+            const woChartEl = document.getElementById('woChart');
+            if (woChartEl) {
+                fetch('/api/wo-statistics')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.error) {
+                            console.error('Error:', data.error);
+                            return;
+                        }
+                        
+                        const woLabels = data.data.map(item => item.wo || 'No WO');
+                        const passData = data.data.map(item => item.tray_pass);
+                        const failData = data.data.map(item => item.tray_fail);
+                        const dispData = data.data.map(item => item.dispositions);
+                        const dispCompletedData = data.data.map(item => item.dispositions_completed);
+                        
+                        const woCtx = woChartEl.getContext('2d');
+                        new Chart(woCtx, {
+                            type: 'bar',
+                            data: {
+                                labels: woLabels,
+                                datasets: [
+                                    {
+                                        label: 'Tray Pass',
+                                        data: passData,
+                                        backgroundColor: '#38ef7d',
+                                        borderWidth: 1
+                                    },
+                                    {
+                                        label: 'Tray Fail',
+                                        data: failData,
+                                        backgroundColor: '#f5576c',
+                                        borderWidth: 1
+                                    },
+                                    {
+                                        label: 'Dispositions',
+                                        data: dispData,
+                                        backgroundColor: '#4facfe',
+                                        borderWidth: 1
+                                    },
+                                    {
+                                        label: 'Dispositions Completed',
+                                        data: dispCompletedData,
+                                        backgroundColor: '#11998e',
+                                        borderWidth: 1
+                                    }
+                                ]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    title: {
+                                        display: true,
+                                        text: 'Statistics by Work Order (WO)'
+                                    },
+                                    legend: {
+                                        display: true,
+                                        position: 'top'
+                                    }
+                                },
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        stacked: false
+                                    },
+                                    x: {
+                                        stacked: false
+                                    }
+                                }
+                            }
+                        });
+                    })
+                    .catch(error => {
+                        console.error('Error loading WO statistics:', error);
+                    });
+            }
+            
+            // Load initial disposition stats and populate dropdowns
+            loadDispositionStats();
+            loadCurrentDispositions();
+        });
         {% endif %}
+        
+        function loadDispositionStats() {
+            const startDate = document.getElementById('filter-start-date').value;
+            const endDate = document.getElementById('filter-end-date').value;
+            const wo = document.getElementById('filter-wo').value;
+            
+            let url = '/api/disposition-stats?';
+            if (startDate) url += `start_date=${startDate}&`;
+            if (endDate) url += `end_date=${endDate}&`;
+            if (wo) url += `wo=${wo}&`;
+            
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error('Error:', data.error);
+                        return;
+                    }
+                    
+                    // Update dropdowns
+                    const startDateSelect = document.getElementById('filter-start-date');
+                    const endDateSelect = document.getElementById('filter-end-date');
+                    const woSelect = document.getElementById('filter-wo');
+                    
+                    // Populate date dropdowns
+                    if (data.unique_dates) {
+                        data.unique_dates.forEach(date => {
+                            if (!startDateSelect.querySelector(`option[value="${date}"]`)) {
+                                const option = document.createElement('option');
+                                option.value = date;
+                                option.textContent = date;
+                                startDateSelect.appendChild(option);
+                            }
+                            if (!endDateSelect.querySelector(`option[value="${date}"]`)) {
+                                const option = document.createElement('option');
+                                option.value = date;
+                                option.textContent = date;
+                                endDateSelect.appendChild(option);
+                            }
+                        });
+                    }
+                    
+                    // Populate WO dropdown
+                    if (data.unique_wos) {
+                        data.unique_wos.forEach(wo_val => {
+                            if (wo_val && !woSelect.querySelector(`option[value="${wo_val}"]`)) {
+                                const option = document.createElement('option');
+                                option.value = wo_val;
+                                option.textContent = wo_val;
+                                woSelect.appendChild(option);
+                            }
+                        });
+                    }
+                    
+                    // Update stats display
+                    document.getElementById('stat-total-dispositions').textContent = data.total_dispositions || 0;
+                    document.getElementById('stat-completed-dispositions').textContent = data.completed_dispositions || 0;
+                    document.getElementById('stat-pending-dispositions').textContent = data.pending_dispositions || 0;
+                    document.getElementById('stat-avg-per-day').textContent = data.avg_per_day || 0;
+                    document.getElementById('stat-avg-per-week').textContent = data.avg_per_week || 0;
+                    document.getElementById('disposition-stats-results').style.display = 'block';
+                })
+                .catch(error => {
+                    console.error('Error loading disposition stats:', error);
+                });
+        }
+        
+        function loadCurrentDispositions() {
+            fetch('/api/current-dispositions')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error('Error:', data.error);
+                        return;
+                    }
+                    
+                    document.getElementById('current-completed').textContent = data.total_completed || 0;
+                    document.getElementById('current-waiting').textContent = data.total_waiting || 0;
+                    document.getElementById('current-waiting-material').textContent = data.total_waiting_material || 0;
+                    document.getElementById('current-dispositions-results').style.display = 'block';
+                })
+                .catch(error => {
+                    console.error('Error loading current dispositions:', error);
+                });
+        }
+        
+        function showAllDispositions() {
+            fetch('/api/all-dispositions')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                        return;
+                    }
+                    
+                    const modalBody = document.getElementById('modal-body');
+                    if (modalBody && modal) {
+                        let html = `<h2>All Dispositions (Debug View)</h2>`;
+                        html += `<p><strong>Total:</strong> ${data.total} | <strong>Completed:</strong> ${data.completed} | <strong>Pending:</strong> ${data.pending}</p>`;
+                        html += `<div style="max-height: 70vh; overflow-y: auto;">`;
+                        html += `<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">`;
+                        html += `<tr style="background: #3498db; color: white; position: sticky; top: 0;">`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Date</th>`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">SN</th>`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">WO</th>`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Description</th>`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Status</th>`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Row IDX</th>`;
+                        html += `</tr>`;
+                        
+                        data.data.forEach(disp => {
+                            const statusColor = disp.is_completed ? '#38ef7d' : '#f5576c';
+                            const statusText = disp.is_completed ? 'Completed' : 'Pending';
+                            html += `<tr>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd;">${disp.date || 'N/A'}</td>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.sn}</td>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.wo || 'N/A'}</td>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd; max-width: 400px; word-wrap: break-word;">${disp.description || 'N/A'}</td>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd; color: ${statusColor}; font-weight: bold;">${statusText}</td>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd;">${disp.row_idx}</td>`;
+                            html += `</tr>`;
+                        });
+                        
+                        html += `</table>`;
+                        html += `</div>`;
+                        modalBody.innerHTML = html;
+                        modal.style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading all dispositions:', error);
+                    alert('Error loading dispositions. Please check console for details.');
+                });
+        }
+        
+        function showDispositionsByStatus(status) {
+            // Get current filter values
+            const startDate = document.getElementById('filter-start-date').value;
+            const endDate = document.getElementById('filter-end-date').value;
+            const wo = document.getElementById('filter-wo').value;
+            
+            fetch('/api/all-dispositions')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                        return;
+                    }
+                    
+                    // Filter by status
+                    let filteredData = data.data;
+                    if (status === 'completed') {
+                        filteredData = data.data.filter(d => d.is_completed);
+                    } else if (status === 'pending') {
+                        filteredData = data.data.filter(d => !d.is_completed);
+                    }
+                    
+                    // Apply date and WO filters
+                    if (startDate) {
+                        filteredData = filteredData.filter(d => d.date >= startDate);
+                    }
+                    if (endDate) {
+                        filteredData = filteredData.filter(d => d.date <= endDate);
+                    }
+                    if (wo && wo !== 'ALL') {
+                        filteredData = filteredData.filter(d => d.wo === wo);
+                    }
+                    
+                    const modalBody = document.getElementById('modal-body');
+                    if (modalBody && modal) {
+                        const statusTitle = status === 'all' ? 'All' : (status === 'completed' ? 'Completed' : 'Pending');
+                        let html = `<h2>${statusTitle} Dispositions (${filteredData.length} total)</h2>`;
+                        html += `<div style="max-height: 70vh; overflow-y: auto;">`;
+                        html += `<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">`;
+                        html += `<tr style="background: #3498db; color: white; position: sticky; top: 0;">`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Date</th>`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">SN</th>`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">WO</th>`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Description</th>`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Status</th>`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Row IDX</th>`;
+                        html += `</tr>`;
+                        
+                        filteredData.forEach(disp => {
+                            const statusColor = disp.is_completed ? '#38ef7d' : '#f5576c';
+                            const statusText = disp.is_completed ? 'Completed' : 'Pending';
+                            html += `<tr>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd;">${disp.date || 'N/A'}</td>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.sn}</td>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.wo || 'N/A'}</td>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd; max-width: 400px; word-wrap: break-word;">${disp.description || 'N/A'}</td>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd; color: ${statusColor}; font-weight: bold;">${statusText}</td>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd;">${disp.row_idx}</td>`;
+                            html += `</tr>`;
+                        });
+                        
+                        html += `</table>`;
+                        html += `</div>`;
+                        modalBody.innerHTML = html;
+                        modal.style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading dispositions:', error);
+                    alert('Error loading dispositions. Please check console for details.');
+                });
+        }
+        
+        function showCurrentDispositions(type) {
+            fetch('/api/current-dispositions')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                        return;
+                    }
+                    
+                    let dispositions = [];
+                    let title = '';
+                    if (type === 'completed') {
+                        dispositions = data.completed;
+                        title = 'Completed Current Dispositions';
+                    } else if (type === 'waiting') {
+                        dispositions = data.waiting;
+                        title = 'Waiting Current Dispositions';
+                    } else if (type === 'waiting_material') {
+                        dispositions = data.waiting_material;
+                        title = 'Waiting for Material Current Dispositions';
+                    }
+                    
+                    const modalBody = document.getElementById('modal-body');
+                    if (modalBody && modal) {
+                        let html = `<h2>${title} (${dispositions.length} total)</h2>`;
+                        html += `<div style="max-height: 70vh; overflow-y: auto;">`;
+                        html += `<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">`;
+                        html += `<tr style="background: #3498db; color: white; position: sticky; top: 0;">`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">SN</th>`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">WO</th>`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">IGS Status</th>`;
+                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Row IDX</th>`;
+                        html += `</tr>`;
+                        
+                        dispositions.forEach(disp => {
+                            html += `<tr>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.sn}</td>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.wo || 'N/A'}</td>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd; max-width: 400px; word-wrap: break-word;">${disp.igs_status || 'N/A'}</td>`;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd;">${disp.row_idx}</td>`;
+                            html += `</tr>`;
+                        });
+                        
+                        html += `</table>`;
+                        html += `</div>`;
+                        modalBody.innerHTML = html;
+                        modal.style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading current dispositions:', error);
+                    alert('Error loading current dispositions. Please check console for details.');
+                });
+        }
     </script>
 </body>
 </html>
