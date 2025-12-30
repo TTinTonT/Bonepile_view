@@ -213,35 +213,23 @@
             <strong>⚠️ Error:</strong> {{ error }}<br>
             <a href="/upload" style="color: #721c24; font-weight: bold;">Click here to upload a file</a>
         </div>
-        {% else %}
-        <div class="note-box">
-            <strong>📋 Statistics Logic:</strong><br>
-            • Valid SN: Format 183XXXXXXXX (13 digits, starts with 183)<br>
-            • Total Trays: Count unique SN (total trays in BP)<br>
-            • Fail Records: COUNTIF(result="FAIL") - count rows with result = FAIL<br>
-            • Pass Records: COUNTIF(result="ALL PASS") - count rows with result = ALL PASS<br>
-            • Disposition: Each row with valid SN = 1 disposition (count duplicates)<br>
-            • Completed disposition: Total disposition - SN Fail with empty IGS Action<br>
-            • In process: IGS Status contains "waiting", "testing", "in process", "in progress"<br>
-            • Waiting for material: Contains "waiting for material", "waiting for cx9", or "waiting for strata"
-        </div>
         {% endif %}
         
         {% if stats %}
         <h2>1. TRAY SUMMARY</h2>
         <div class="metric-grid">
-            <div class="metric-box" onclick="showSNList('total')">
+            <div class="metric-box" onclick="showSNList('total')" title="Total Trays: Count of unique Serial Numbers (SN) in format 183XXXXXXXX (13 digits). Each unique SN represents one tray in the Bonepile.">
                 <div class="metric-label">Total Trays (Unique SN)</div>
                 <div class="metric-value">{{ stats.total_trays }}</div>
                 <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view list</div>
             </div>
-            <div class="metric-box warning" onclick="showSNList('fail')">
+            <div class="metric-box warning" onclick="showSNList('fail')" title="Fail Records: Total number of rows where Result column = 'FAIL'. This counts all fail records, including duplicates. The number in parentheses shows unique SN count.">
                 <div class="metric-label">Fail Records</div>
                 <div class="metric-value">{{ stats.total_fail }}</div>
                 <div class="metric-label" style="font-size: 11px; margin-top: 5px;">({{ stats.total_fail_unique }} unique SN)</div>
                 <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view list</div>
             </div>
-            <div class="metric-box success" onclick="showSNList('pass')">
+            <div class="metric-box success" onclick="showSNList('pass')" title="Pass Records: Total number of rows where Result column = 'ALL PASS'. This counts all pass records, including duplicates. The number in parentheses shows unique SN count.">
                 <div class="metric-label">Pass Records</div>
                 <div class="metric-value">{{ stats.total_pass }}</div>
                 <div class="metric-label" style="font-size: 11px; margin-top: 5px;">({{ stats.total_pass_unique }} unique SN)</div>
@@ -284,33 +272,33 @@
                 </div>
             </div>
             <div style="display: flex; gap: 10px;">
-                <button onclick="loadDispositionStats()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">Apply Filters</button>
+                <button onclick="applyFilters()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">Apply Filters</button>
                 <button onclick="showAllDispositions()" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">🔍 View All Dispositions (Debug)</button>
             </div>
         </div>
         
         <div id="disposition-stats-results" style="display: none;">
             <div class="metric-grid">
-                <div class="metric-box info" onclick="showDispositionsByStatus('all')" style="cursor: pointer;">
+                <div class="metric-box info" onclick="showDispositionsByStatus('all')" style="cursor: pointer;" title="Total Dispositions: Total number of dispositions parsed from NV Disposition column (Column H). Each date format (MM/DD: description) counts as one disposition. Only rows with IGS Action (Column M) having a value are counted.">
                     <div class="metric-label">Total Dispositions</div>
                     <div class="metric-value" id="stat-total-dispositions">0</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view all</div>
                 </div>
-                <div class="metric-box success" onclick="showDispositionsByStatus('completed')" style="cursor: pointer;">
+                <div class="metric-box success" onclick="showDispositionsByStatus('completed')" style="cursor: pointer;" title="Completed Dispositions: Dispositions are considered completed when: (1) Latest IGS Action date >= Latest NV Disposition date, OR (2) IGS Action is empty but IGS Status contains 'waiting for NV disposition' or Result is PASS/ALL PASS, OR (3) Only IGS Action date exists (no NV Disposition date).">
                     <div class="metric-label">Completed Dispositions</div>
                     <div class="metric-value" id="stat-completed-dispositions">0</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
                 </div>
-                <div class="metric-box warning" onclick="showDispositionsByStatus('pending')" style="cursor: pointer;">
+                <div class="metric-box warning" onclick="showDispositionsByStatus('pending')" style="cursor: pointer;" title="Pending Dispositions: Dispositions that are not yet completed. This occurs when: Latest IGS Action date < Latest NV Disposition date AND Result is still 'FAIL', OR IGS Action is empty without completion indicators.">
                     <div class="metric-label">Pending Dispositions</div>
                     <div class="metric-value" id="stat-pending-dispositions">0</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
                 </div>
-                <div class="metric-box info">
+                <div class="metric-box info" title="Avg per Day: Average number of dispositions per day within the selected date range. Calculated as: Total Dispositions / Number of Days in the filtered period. If date filters are provided, uses the filter date range; otherwise uses min/max dates from dispositions.">
                     <div class="metric-label">Avg per Day</div>
                     <div class="metric-value" id="stat-avg-per-day">0</div>
                 </div>
-                <div class="metric-box info">
+                <div class="metric-box info" title="Avg per Week: Average number of dispositions per week within the selected date range. Calculated as: Total Dispositions / Number of Weeks in the filtered period. Number of weeks = Number of Days / 7.">
                     <div class="metric-label">Avg per Week</div>
                     <div class="metric-value" id="stat-avg-per-week">0</div>
                 </div>
@@ -320,17 +308,17 @@
         <h2>3. CURRENT DISPOSITIONS</h2>
         <div id="current-dispositions-results" style="display: none;">
             <div class="metric-grid">
-                <div class="metric-box success" onclick="showCurrentDispositions('completed')" style="cursor: pointer;">
+                <div class="metric-box success" onclick="showCurrentDispositions('completed')" style="cursor: pointer;" title="Current Dispositions - Completed: Rows where Result = 'FAIL' and PIC = 'IGS', and IGS Status does NOT contain 'testing' or 'waiting' (except 'waiting for disposition'). These represent dispositions that are currently being processed and are completed.">
                     <div class="metric-label">Completed</div>
                     <div class="metric-value" id="current-completed">0</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
                 </div>
-                <div class="metric-box warning" onclick="showCurrentDispositions('waiting')" style="cursor: pointer;">
+                <div class="metric-box warning" onclick="showCurrentDispositions('waiting')" style="cursor: pointer;" title="Current Dispositions - Waiting: Rows where Result = 'FAIL' and PIC = 'IGS', and IGS Status contains 'testing' or 'waiting' (but NOT 'waiting for disposition'). These are dispositions waiting for action.">
                     <div class="metric-label">Waiting</div>
                     <div class="metric-value" id="current-waiting">0</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
                 </div>
-                <div class="metric-box warning" onclick="showCurrentDispositions('waiting_material')" style="cursor: pointer;">
+                <div class="metric-box warning" onclick="showCurrentDispositions('waiting_material')" style="cursor: pointer;" title="Current Dispositions - Waiting for Material: Rows where Result = 'FAIL' and PIC = 'IGS', and IGS Status contains 'waiting for material', 'waiting for strata', or 'waiting for cx9'. These dispositions are waiting for material/components.">
                     <div class="metric-label">Waiting for Material</div>
                     <div class="metric-value" id="current-waiting-material">0</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
@@ -342,13 +330,13 @@
         {% if stats %}
         <h2>6. IN-PROCESS DISPOSITIONS</h2>
         <div class="metric-grid">
-            <div class="metric-box info" onclick="showInProcess()">
+            <div class="metric-box info" onclick="showInProcess()" title="In Process Dispositions: Rows where IGS Status contains 'waiting', 'testing', 'in process', or 'in progress'. These are dispositions that are currently being processed or tested. The number in parentheses shows unique SN count.">
                 <div class="metric-label">In Process Dispositions</div>
                 <div class="metric-value">{{ stats.in_process }}</div>
                 <div class="metric-label" style="font-size: 11px; margin-top: 5px;">({{ stats.in_process_unique }} unique SN)</div>
                 <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
             </div>
-            <div class="metric-box warning" onclick="showWaitingMaterial()">
+            <div class="metric-box warning" onclick="showWaitingMaterial()" title="Waiting for Material: Rows where IGS Status contains 'waiting for material', 'waiting for strata', or 'waiting for cx9'. These dispositions are waiting for material or components to proceed. The number in parentheses shows unique SN count.">
                 <div class="metric-label">Waiting for Material</div>
                 <div class="metric-value">{{ stats.waiting_material }}</div>
                 <div class="metric-label" style="font-size: 11px; margin-top: 5px;">({{ stats.waiting_material_unique }} unique SN)</div>
@@ -370,6 +358,73 @@
         </div>
         {% endif %}
         {% endif %}
+        
+        <h2>8. FIELD DESCRIPTIONS</h2>
+        <div class="summary" style="margin-top: 30px;">
+            <h3 style="margin-bottom: 15px; color: #2c3e50;">Metric Definitions</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr style="background: #3498db; color: white;">
+                    <th style="padding: 12px; text-align: left; width: 200px;">Field</th>
+                    <th style="padding: 12px; text-align: left;">Description</th>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Total Trays</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Count of unique Serial Numbers (SN) in format 183XXXXXXXX (13 digits). Each unique SN represents one tray in the Bonepile.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Fail Records</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Total number of rows where Result column = "FAIL". This counts all fail records, including duplicates. The number in parentheses shows unique SN count.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Pass Records</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Total number of rows where Result column = "ALL PASS". This counts all pass records, including duplicates. The number in parentheses shows unique SN count.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Total Dispositions</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Total number of dispositions parsed from NV Disposition column (Column H). Each date format (MM/DD: description) counts as one disposition. Only rows with IGS Action (Column M) having a value are counted.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Completed Dispositions</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Dispositions are considered completed when: (1) Latest IGS Action date >= Latest NV Disposition date, OR (2) IGS Action is empty but IGS Status contains "waiting for NV disposition" or Result is PASS/ALL PASS, OR (3) Only IGS Action date exists (no NV Disposition date).</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Pending Dispositions</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Dispositions that are not yet completed. This occurs when: Latest IGS Action date < Latest NV Disposition date AND Result is still "FAIL", OR IGS Action is empty without completion indicators.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Current Dispositions - Completed</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Rows where Result = "FAIL" and PIC = "IGS", and IGS Status does NOT contain "testing" or "waiting" (except "waiting for disposition"). These represent dispositions that are currently being processed and are completed.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Current Dispositions - Waiting</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Rows where Result = "FAIL" and PIC = "IGS", and IGS Status contains "testing" or "waiting" (but NOT "waiting for disposition"). These are dispositions waiting for action.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Current Dispositions - Waiting for Material</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Rows where Result = "FAIL" and PIC = "IGS", and IGS Status contains "waiting for material", "waiting for strata", or "waiting for cx9". These dispositions are waiting for material/components.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">WO Statistics</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Statistics grouped by Work Order (WO). WO is mapped from FA_Work_Log.xlsx file. Shows tray pass/fail counts and disposition statistics for each WO. Chart updates based on date range and WO filters.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Avg per Day</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Average number of dispositions per day within the selected date range. Calculated as: Total Dispositions / Number of Days in the filtered period. If date filters are provided, uses the filter date range; otherwise uses min/max dates from dispositions.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Avg per Week</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Average number of dispositions per week within the selected date range. Calculated as: Total Dispositions / Number of Weeks in the filtered period. Number of weeks = Number of Days / 7.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">In Process Dispositions</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Rows where IGS Status contains "waiting", "testing", "in process", or "in progress". These are dispositions that are currently being processed or tested. The number in parentheses shows unique SN count.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Waiting for Material</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Rows where IGS Status contains "waiting for material", "waiting for strata", or "waiting for cx9". These dispositions are waiting for material or components to proceed. The number in parentheses shows unique SN count.</td>
+                </tr>
+            </table>
+        </div>
     </div>
     
     <!-- Modal -->
@@ -548,90 +603,115 @@
                 });
             }
             
-            // WO Statistics Chart
-            const woChartEl = document.getElementById('woChart');
-            if (woChartEl) {
-                fetch('/api/wo-statistics')
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.error) {
-                            console.error('Error:', data.error);
-                            return;
-                        }
-                        
-                        const woLabels = data.data.map(item => item.wo || 'No WO');
-                        const passData = data.data.map(item => item.tray_pass);
-                        const failData = data.data.map(item => item.tray_fail);
-                        const dispData = data.data.map(item => item.dispositions);
-                        const dispCompletedData = data.data.map(item => item.dispositions_completed);
-                        
-                        const woCtx = woChartEl.getContext('2d');
-                        new Chart(woCtx, {
-                            type: 'bar',
-                            data: {
-                                labels: woLabels,
-                                datasets: [
-                                    {
-                                        label: 'Tray Pass',
-                                        data: passData,
-                                        backgroundColor: '#38ef7d',
-                                        borderWidth: 1
-                                    },
-                                    {
-                                        label: 'Tray Fail',
-                                        data: failData,
-                                        backgroundColor: '#f5576c',
-                                        borderWidth: 1
-                                    },
-                                    {
-                                        label: 'Dispositions',
-                                        data: dispData,
-                                        backgroundColor: '#4facfe',
-                                        borderWidth: 1
-                                    },
-                                    {
-                                        label: 'Dispositions Completed',
-                                        data: dispCompletedData,
-                                        backgroundColor: '#11998e',
-                                        borderWidth: 1
-                                    }
-                                ]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                plugins: {
-                                    title: {
-                                        display: true,
-                                        text: 'Statistics by Work Order (WO)'
-                                    },
-                                    legend: {
-                                        display: true,
-                                        position: 'top'
-                                    }
-                                },
-                                scales: {
-                                    y: {
-                                        beginAtZero: true,
-                                        stacked: false
-                                    },
-                                    x: {
-                                        stacked: false
-                                    }
-                                }
-                            }
-                        });
-                    })
-                    .catch(error => {
-                        console.error('Error loading WO statistics:', error);
-                    });
-            }
-            
-            // Load initial disposition stats and populate dropdowns
+            // Load initial charts and stats
+            loadWOChart();
             loadDispositionStats();
             loadCurrentDispositions();
         });
         {% endif %}
+        
+        // Global variable to store WO chart instance
+        let woChartInstance = null;
+        
+        function loadWOChart() {
+            const woChartEl = document.getElementById('woChart');
+            if (!woChartEl) return;
+            
+            // Get current filter values
+            const startDate = document.getElementById('filter-start-date')?.value || '';
+            const endDate = document.getElementById('filter-end-date')?.value || '';
+            const wo = document.getElementById('filter-wo')?.value || '';
+            
+            let url = '/api/wo-statistics?';
+            if (startDate) url += `start_date=${startDate}&`;
+            if (endDate) url += `end_date=${endDate}&`;
+            if (wo) url += `wo=${wo}&`;
+            
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error('Error:', data.error);
+                        return;
+                    }
+                    
+                    // Destroy existing chart if it exists
+                    if (woChartInstance) {
+                        woChartInstance.destroy();
+                    }
+                    
+                    const woLabels = data.data.map(item => item.wo || 'No WO');
+                    const passData = data.data.map(item => item.tray_pass);
+                    const failData = data.data.map(item => item.tray_fail);
+                    const dispData = data.data.map(item => item.dispositions);
+                    const dispCompletedData = data.data.map(item => item.dispositions_completed);
+                    
+                    const woCtx = woChartEl.getContext('2d');
+                    woChartInstance = new Chart(woCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: woLabels,
+                            datasets: [
+                                {
+                                    label: 'Tray Pass',
+                                    data: passData,
+                                    backgroundColor: '#38ef7d',
+                                    borderWidth: 1
+                                },
+                                {
+                                    label: 'Tray Fail',
+                                    data: failData,
+                                    backgroundColor: '#f5576c',
+                                    borderWidth: 1
+                                },
+                                {
+                                    label: 'Dispositions',
+                                    data: dispData,
+                                    backgroundColor: '#4facfe',
+                                    borderWidth: 1
+                                },
+                                {
+                                    label: 'Dispositions Completed',
+                                    data: dispCompletedData,
+                                    backgroundColor: '#11998e',
+                                    borderWidth: 1
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Statistics by Work Order (WO)'
+                                },
+                                legend: {
+                                    display: true,
+                                    position: 'top'
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    stacked: false
+                                },
+                                x: {
+                                    stacked: false
+                                }
+                            }
+                        }
+                    });
+                })
+                .catch(error => {
+                    console.error('Error loading WO statistics:', error);
+                });
+        }
+        
+        function applyFilters() {
+            loadDispositionStats();
+            loadWOChart();
+        }
         
         function loadDispositionStats() {
             const startDate = document.getElementById('filter-start-date').value;

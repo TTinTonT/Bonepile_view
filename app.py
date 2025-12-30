@@ -7,13 +7,11 @@ Flask web application for VR-TS1 Bonepile Statistics
 from flask import Flask, render_template, jsonify, request, redirect, url_for, flash
 import pandas as pd
 import numpy as np
-import json
 import os
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 import socket
 import re
-from collections import defaultdict
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -130,10 +128,19 @@ def parse_dispositions_from_text(text):
             continue
         current_year = datetime.now().year
         try:
+            # Only include dispositions from December (month 12) onwards
+            if month < 12:
+                continue  # Skip months before December
+            
+            # Try current year first
             date = datetime(current_year, month, day)
+            # If date is in the future, use previous year
             if date > datetime.now():
                 date = datetime(current_year - 1, month, day)
-            dispositions.append((date, description))
+            
+            # Only add if date is from December onwards (check both current and previous year)
+            if date.month >= 12:
+                dispositions.append((date, description))
         except ValueError:
             continue
     return dispositions
@@ -405,13 +412,13 @@ def load_data(filename=None):
         'unique_sns': unique_sns,
         'unique_fail_sns': unique_fail_sns,
         'unique_pass_sns': unique_pass_sns,
-        'fail_records': fail_records,  # Tất cả fail (result = FAIL)
-        'pass_records': pass_records,  # Tất cả pass (result = PASS)
-        'fail_igs_records': fail_igs_records,  # Fail với PIC = IGS
+        'fail_records': fail_records,
+        'pass_records': pass_records,
+        'fail_igs_records': fail_igs_records,
         'fail_with_empty_action': fail_with_empty_action,
         'in_process_records': in_process_records,
         'waiting_material_records': waiting_material_records,
-        'all_dispositions': all_dispositions,  # Tất cả dispositions với chi tiết
+        'all_dispositions': all_dispositions,
         'disposition_by_row': disposition_by_row,  # Disposition theo row
         'sn_wo_mapping': sn_wo_mapping,  # Mapping SN -> WO
         'current_dispositions_completed': current_dispositions_completed,
@@ -441,11 +448,11 @@ def index():
         completed_dispositions = sum(1 for d in data['all_dispositions'] if d['is_completed']) if 'all_dispositions' in data else 0
         
         stats = {
-            'total_trays': len(data['unique_sns']),  # Tổng số tray = số unique SN
-            'total_fail': len(data['fail_records']),  # COUNTIF(result="FAIL") - số dòng có result = FAIL
-            'total_pass': len(data['pass_records']),  # COUNTIF(result="ALL PASS") - số dòng có result = ALL PASS
-            'total_fail_unique': len(data['unique_fail_sns']),  # Số unique SN fail
-            'total_pass_unique': len(data['unique_pass_sns']),  # Số unique SN pass
+            'total_trays': len(data['unique_sns']),
+            'total_fail': len(data['fail_records']),
+            'total_pass': len(data['pass_records']),
+            'total_fail_unique': len(data['unique_fail_sns']),
+            'total_pass_unique': len(data['unique_pass_sns']),
             'total_dispositions': total_dispositions,
             'completed_dispositions': completed_dispositions,
             'fail_empty_action': len(fail_empty_sns),
@@ -659,11 +666,32 @@ def get_disposition_stats():
         
         # Calculate average per day/week
         if filtered_dispositions:
-            dates = [d['date'] for d in filtered_dispositions]
-            min_date = min(dates)
-            max_date = max(dates)
-            days_diff = (max_date - min_date).days + 1
-            weeks_diff = days_diff / 7.0
+            # If date filters are provided, use them; otherwise use min/max from dispositions
+            if start_date and end_date:
+                # Use the filter date range (end_date was already +1 day for filtering, so subtract 1)
+                actual_end_date = end_date - timedelta(days=1)
+                days_diff = (actual_end_date - start_date).days + 1
+                weeks_diff = days_diff / 7.0
+            elif start_date:
+                # Only start date provided, use max date from dispositions
+                dates = [d['date'] for d in filtered_dispositions]
+                max_date = max(dates)
+                days_diff = (max_date - start_date).days + 1
+                weeks_diff = days_diff / 7.0
+            elif end_date:
+                # Only end date provided, use min date from dispositions
+                dates = [d['date'] for d in filtered_dispositions]
+                min_date = min(dates)
+                actual_end_date = end_date - timedelta(days=1)
+                days_diff = (actual_end_date - min_date).days + 1
+                weeks_diff = days_diff / 7.0
+            else:
+                # No date filter, use min/max from dispositions
+                dates = [d['date'] for d in filtered_dispositions]
+                min_date = min(dates)
+                max_date = max(dates)
+                days_diff = (max_date - min_date).days + 1
+                weeks_diff = days_diff / 7.0
             
             avg_per_day = total_dispositions / days_diff if days_diff > 0 else 0
             avg_per_week = total_dispositions / weeks_diff if weeks_diff > 0 else 0
@@ -740,19 +768,59 @@ def get_all_dispositions():
 
 @app.route('/api/wo-statistics')
 def get_wo_statistics():
-    """Get statistics grouped by WO"""
+    """Get statistics grouped by WO with filters"""
     try:
         data = load_data()
         if data is None:
             return jsonify({'error': 'No data available'}), 404
         
+        # Get filter parameters
+        start_date_str = request.args.get('start_date', '')
+        end_date_str = request.args.get('end_date', '')
+        wo_filter = request.args.get('wo', '')
+        
+        # Parse dates
+        start_date = None
+        end_date = None
+        if start_date_str:
+            try:
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            except:
+                pass
+        if end_date_str:
+            try:
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+                end_date = end_date + timedelta(days=1)
+            except:
+                pass
+        
+        # Filter dispositions by date and WO
+        filtered_dispositions = []
+        for disp in data.get('all_dispositions', []):
+            # Filter by date
+            if start_date and disp['date'] < start_date:
+                continue
+            if end_date and disp['date'] >= end_date:
+                continue
+            # Filter by WO
+            if wo_filter and wo_filter != 'ALL' and disp.get('wo', '') != wo_filter:
+                continue
+            filtered_dispositions.append(disp)
+        
+        # Get unique SNs from filtered dispositions
+        filtered_sns = set([d['sn'] for d in filtered_dispositions])
+        
         # Group by WO
         wo_stats = {}
         sn_wo_mapping = data.get('sn_wo_mapping', {})
         
-        # Count trays (unique SN) by WO
+        # Count trays (unique SN) by WO from filtered data
         for sn in data['unique_sns']:
             sn_str = str(int(sn)) if isinstance(sn, (int, float)) else str(sn).strip().replace('.0', '')
+            # Only count if SN is in filtered dispositions or no filter applied
+            if filtered_dispositions and sn_str not in filtered_sns:
+                continue
+                
             wo = sn_wo_mapping.get(sn_str, '')
             if wo:
                 wo = normalize_wo(wo)
@@ -771,6 +839,8 @@ def get_wo_statistics():
         # Count pass/fail trays by WO
         for sn in data['unique_pass_sns']:
             sn_str = str(int(sn)) if isinstance(sn, (int, float)) else str(sn).strip().replace('.0', '')
+            if filtered_dispositions and sn_str not in filtered_sns:
+                continue
             wo = sn_wo_mapping.get(sn_str, '')
             if wo:
                 wo = normalize_wo(wo)
@@ -781,6 +851,8 @@ def get_wo_statistics():
         
         for sn in data['unique_fail_sns']:
             sn_str = str(int(sn)) if isinstance(sn, (int, float)) else str(sn).strip().replace('.0', '')
+            if filtered_dispositions and sn_str not in filtered_sns:
+                continue
             wo = sn_wo_mapping.get(sn_str, '')
             if wo:
                 wo = normalize_wo(wo)
@@ -789,8 +861,8 @@ def get_wo_statistics():
             if wo in wo_stats:
                 wo_stats[wo]['tray_fail'] += 1
         
-        # Count dispositions by WO
-        for disp in data.get('all_dispositions', []):
+        # Count dispositions by WO from filtered dispositions
+        for disp in filtered_dispositions:
             wo = disp.get('wo', '')
             if not wo:
                 wo = 'No WO'
