@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VR-TS1 Bonepile Statistics Report</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+            border-left: 4px solid #3498db;
+            padding-left: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .metric-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .metric-box:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        
+        .metric-box.success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+        
+        .metric-box.warning {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        .metric-box.info {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        
+        .metric-value {
+            font-size: 32px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .metric-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        
+        th {
+            background: #3498db;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        tr:hover {
+            background: #f5f5f5;
+        }
+        
+        .summary {
+            background: #e8f5e9;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        
+        .note-box {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border-left: 4px solid #ffc107;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            overflow: auto;
+        }
+        
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 900px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: black;
+        }
+        
+        .chart-container {
+            margin: 30px 0;
+            position: relative;
+            height: 400px;
+        }
+        
+        .sn-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            margin: 20px 0;
+        }
+        
+        .sn-item {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+            text-align: center;
+            font-family: monospace;
+        }
+        
+        #modal-body table {
+            width: 100%;
+        }
+        
+        #modal-body td {
+            word-wrap: break-word;
+            max-width: 300px;
+            vertical-align: top;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 VR-TS1 BONEPILE STATISTICS REPORT</h1>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <div>
+                <p><strong>Generated:</strong> <span id="generated-time"></span></p>
+                <p><strong>Source:</strong> NV_IGS_VR144_Bonepile.xlsx - Sheet VR-TS1</p>
+                <p><strong>Server IP:</strong> <span style="font-family: monospace; background: #f0f0f0; padding: 2px 8px; border-radius: 3px;">{{ ip }}</span></p>
+            </div>
+            <div>
+                <a href="/upload" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; display: inline-block;">📤 Upload New File</a>
+            </div>
+        </div>
+        
+        {% if error %}
+        <div class="note-box" style="background: #f8d7da; border-left-color: #dc3545;">
+            <strong>⚠️ Error:</strong> {{ error }}<br>
+            <a href="/upload" style="color: #721c24; font-weight: bold;">Click here to upload a file</a>
+        </div>
+        {% else %}
+        <div class="note-box">
+            <strong>📋 Statistics Logic:</strong><br>
+            • Valid SN: Format 183XXXXXXXX (13 digits, starts with 183)<br>
+            • Fail: PIC = IGS and result = FAIL<br>
+            • Pass: Total unique SN - Fail unique<br>
+            • Disposition: Each row with valid SN = 1 disposition (count duplicates)<br>
+            • Completed disposition: Total disposition - SN Fail with empty IGS Action<br>
+            • In process: IGS Status contains "waiting", "testing", "in process", "in progress"<br>
+            • Waiting for material: Contains "waiting for material", "strata", "cx9"
+        </div>
+        {% endif %}
+        
+        {% if stats %}
+        <h2>1. TRAY SUMMARY</h2>
+        <div class="metric-grid">
+            <div class="metric-box" onclick="showSNList('total')">
+                <div class="metric-label">Total Trays (Unique SN)</div>
+                <div class="metric-value">{{ stats.total_trays }}</div>
+                <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view list</div>
+            </div>
+            <div class="metric-box warning" onclick="showSNList('fail')">
+                <div class="metric-label">Tray Fail (Unique)</div>
+                <div class="metric-value">{{ stats.total_fail }}</div>
+                <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view list</div>
+            </div>
+            <div class="metric-box success" onclick="showSNList('pass')">
+                <div class="metric-label">Tray Pass (Unique)</div>
+                <div class="metric-value">{{ stats.total_pass }}</div>
+                <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view list</div>
+            </div>
+        </div>
+        
+        {% if stats %}
+        <div class="chart-container">
+            <canvas id="trayChart"></canvas>
+        </div>
+        
+        <h2>2. DISPOSITION STATISTICS</h2>
+        <div class="metric-grid">
+            <div class="metric-box info">
+                <div class="metric-label">Total Dispositions</div>
+                <div class="metric-value">{{ stats.total_dispositions }}</div>
+                <div class="metric-label" style="font-size: 11px; margin-top: 5px;">(Each row with valid SN = 1)</div>
+            </div>
+            <div class="metric-box success">
+                <div class="metric-label">Completed Dispositions</div>
+                <div class="metric-value">{{ stats.completed_dispositions }}</div>
+            </div>
+            <div class="metric-box warning" onclick="showFailEmptyAction()">
+                <div class="metric-label">SN Fail with Empty IGS Action</div>
+                <div class="metric-value">{{ stats.fail_empty_action }}</div>
+                <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="dispositionChart"></canvas>
+        </div>
+        {% endif %}
+        
+        {% if stats %}
+        <h2>3. IN-PROCESS DISPOSITIONS</h2>
+        <div class="metric-grid">
+            <div class="metric-box info" onclick="showInProcess()">
+                <div class="metric-label">In Process Dispositions</div>
+                <div class="metric-value">{{ stats.in_process }}</div>
+                <div class="metric-label" style="font-size: 11px; margin-top: 5px;">({{ stats.in_process_unique }} unique SN)</div>
+                <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
+            </div>
+            <div class="metric-box warning" onclick="showWaitingMaterial()">
+                <div class="metric-label">Waiting for Material</div>
+                <div class="metric-value">{{ stats.waiting_material }}</div>
+                <div class="metric-label" style="font-size: 11px; margin-top: 5px;">({{ stats.waiting_material_unique }} unique SN)</div>
+                <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
+            </div>
+        </div>
+        
+        <h2>4. AVERAGE DURATION</h2>
+        <div class="summary">
+            <table>
+                <tr><th>Metric</th><th>Value</th></tr>
+                <tr><td>Records with BP Duration (from completed dispositions)</td><td>{{ stats.duration_count }}</td></tr>
+                <tr><td>Average</td><td>{{ "%.2f"|format(stats.avg_duration) }} days</td></tr>
+                <tr><td>Median</td><td>{{ "%.2f"|format(stats.median_duration) }} days</td></tr>
+                <tr><td>Min</td><td>{{ "%.2f"|format(stats.min_duration) }} days</td></tr>
+                <tr><td>Max</td><td>{{ "%.2f"|format(stats.max_duration) }} days</td></tr>
+                <tr><td>Standard Deviation</td><td>{{ "%.2f"|format(stats.std_duration) }} days</td></tr>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+    
+    <!-- Modal -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+    
+    <script>
+        // Set generated time
+        document.getElementById('generated-time').textContent = new Date().toLocaleString();
+        
+        {% if stats %}
+        // Charts
+        const trayCtx = document.getElementById('trayChart').getContext('2d');
+        new Chart(trayCtx, {
+            type: 'pie',
+            data: {
+                labels: ['Pass', 'Fail'],
+                datasets: [{
+                    data: [{{ stats.total_pass }}, {{ stats.total_fail }}],
+                    backgroundColor: ['#38ef7d', '#f5576c'],
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Tray Distribution (Pass vs Fail)'
+                    }
+                }
+            }
+        });
+        
+        const dispositionCtx = document.getElementById('dispositionChart').getContext('2d');
+        new Chart(dispositionCtx, {
+            type: 'bar',
+            data: {
+                labels: ['Total', 'Completed', 'Fail Empty Action'],
+                datasets: [{
+                    label: 'Dispositions',
+                    data: [{{ stats.total_dispositions }}, {{ stats.completed_dispositions }}, {{ stats.fail_empty_action }}],
+                    backgroundColor: ['#4facfe', '#38ef7d', '#f5576c'],
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Disposition Statistics'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+        
+        // Modal functions
+        const modal = document.getElementById('modal');
+        const closeBtn = document.querySelector('.close');
+        
+        closeBtn.onclick = function() {
+            modal.style.display = 'none';
+        }
+        
+        window.onclick = function(event) {
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        }
+        
+        function showSNList(category) {
+            fetch(`/api/sn-list/${category}`)
+                .then(response => response.json())
+                .then(data => {
+                    const modalBody = document.getElementById('modal-body');
+                    modalBody.innerHTML = `<h2>${category.toUpperCase()} Trays (${data.count} total)</h2>
+                        <div class="sn-list">${data.sns.map(sn => `<div class="sn-item">${sn}</div>`).join('')}</div>`;
+                    modal.style.display = 'block';
+                });
+        }
+        
+        function showFailEmptyAction() {
+            fetch('/api/fail-empty-action')
+                .then(response => response.json())
+                .then(data => {
+                    const modalBody = document.getElementById('modal-body');
+                    modalBody.innerHTML = `<h2>SN Fail with Empty IGS Action (${data.count} total)</h2>
+                        <table>
+                            <tr><th>SN</th><th>NV Disposition</th></tr>
+                            ${data.data.map(item => `
+                                <tr>
+                                    <td>${item.sn}</td>
+                                    <td>${item.nv_disposition}</td>
+                                </tr>
+                            `).join('')}
+                        </table>`;
+                    modal.style.display = 'block';
+                });
+        }
+        
+        function showInProcess() {
+            fetch('/api/in-process')
+                .then(response => response.json())
+                .then(data => {
+                    const modalBody = document.getElementById('modal-body');
+                    modalBody.innerHTML = `<h2>In Process Dispositions (${data.count} total)</h2>
+                        <table>
+                            <tr><th>SN</th><th>NV Disposition</th><th>IGS Action</th></tr>
+                            ${data.data.map(item => `
+                                <tr>
+                                    <td>${item.sn}</td>
+                                    <td>${item.nv_disposition}</td>
+                                    <td>${item.igs_action}</td>
+                                </tr>
+                            `).join('')}
+                        </table>`;
+                    modal.style.display = 'block';
+                });
+        }
+        
+        function showWaitingMaterial() {
+            fetch('/api/waiting-material')
+                .then(response => response.json())
+                .then(data => {
+                    const modalBody = document.getElementById('modal-body');
+                    modalBody.innerHTML = `<h2>Waiting for Material (${data.count} total)</h2>
+                        <table>
+                            <tr><th>SN</th><th>NV Disposition</th><th>IGS Action</th><th>IGS Status</th></tr>
+                            ${data.data.map(item => `
+                                <tr>
+                                    <td>${item.sn}</td>
+                                    <td>${item.nv_disposition}</td>
+                                    <td>${item.igs_action}</td>
+                                    <td>${item.igs_status}</td>
+                                </tr>
+                            `).join('')}
+                        </table>`;
+                    modal.style.display = 'block';
+                });
+        {% endif %}
+    </script>
+</body>
+</html>
+
