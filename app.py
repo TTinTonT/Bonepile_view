@@ -12,15 +12,21 @@ from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 import socket
 import re
+import glob
+from collections import defaultdict
+import pickle
+import hashlib
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
 app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['CACHE_FOLDER'] = 'cache'
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
 
-# Create upload folder if not exists
+# Create upload and cache folders if not exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['CACHE_FOLDER'], exist_ok=True)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -36,6 +42,28 @@ def get_local_ip():
         return ip
     except:
         return "127.0.0.1"
+
+# Station order: FLA > FLB > AST > FTS > FCT > RIN
+STATION_ORDER = ['FLA', 'FLB', 'AST', 'FTS', 'FCT', 'RIN']
+
+def sort_stations(stations):
+    """
+    Sort stations according to custom order: FLA > FLB > AST > FTS > FCT > RIN
+    Stations not in the order list will be sorted alphabetically at the end
+    """
+    def get_station_order(station):
+        try:
+            return STATION_ORDER.index(station)
+        except ValueError:
+            # Station not in order list, put it at the end
+            return len(STATION_ORDER) + ord(station[0]) if station else 999
+    
+    if isinstance(stations, (list, tuple)):
+        return sorted(stations, key=get_station_order)
+    elif isinstance(stations, set):
+        return sorted(list(stations), key=get_station_order)
+    else:
+        return stations
 
 # Function to check valid SN
 def is_valid_sn(sn):
@@ -77,6 +105,296 @@ def normalize_wo(wo_str):
     if '-' in wo_str:
         wo_str = wo_str.split('-')[0]
     return wo_str
+
+# Function to parse test filename from daily test analysis
+def extract_part_number_from_filename(filename):
+    """
+    Extract part number từ filename và normalize (chỉ lấy phần sau PB-xxxxx_)
+    Pattern: IGSJ_PB-6306_675-24109-0000-TS1_1835225000016_F_RIN_20251230T161507Z
+    Returns normalized part number (chỉ phần sau PB-xxxxx_) hoặc 'Unknown' nếu không tìm thấy
+    """
+    name = filename.replace('.zip', '')
+    
+    # Pattern 1: PB-XXXX_XXX-XXXXX-XXXX-TS1 (full pattern with PB prefix)
+    pattern1 = r'PB-\d+_(\d+-\d+-\d+-TS1)'
+    match1 = re.search(pattern1, name)
+    if match1:
+        return match1.group(1)  # Chỉ lấy phần sau PB-xxxxx_
+    
+    # Pattern 2: PB-XXXX_XXX-XXXXX-XXXX (without TS1, with PB prefix)
+    pattern2 = r'PB-\d+_(\d+-\d+-\d+)'
+    match2 = re.search(pattern2, name)
+    if match2:
+        return match2.group(1)  # Chỉ lấy phần sau PB-xxxxx_
+    
+    # Pattern 3: XXX-XXXXX-XXXX-TS1 (without PB prefix - giữ nguyên)
+    pattern3 = r'(\d+-\d+-\d+-TS1)'
+    match3 = re.search(pattern3, name)
+    if match3:
+        return match3.group(1)
+    
+    # Pattern 4: XXX-XXXXX-XXXX (without PB prefix and TS1 - giữ nguyên)
+    pattern4 = r'(\d+-\d+-\d+)'
+    match4 = re.search(pattern4, name)
+    if match4:
+        return match4.group(1)
+    
+    return 'Unknown'
+
+def parse_test_filename(filename):
+    """Parse filename để extract: SN, Status (F/P), Station, Part Number"""
+    name = filename.replace('.zip', '')
+    
+    # Extract part number
+    part_number = extract_part_number_from_filename(filename)
+    
+    # Pattern 1: _SN_Status_Station_ (ví dụ: _1835225000016_F_RIN_)
+    pattern1 = r'_(\d{10,})_([FP])_([A-Z0-9]+)_'
+    match1 = re.search(pattern1, name)
+    if match1:
+        sn = match1.group(1)
+        status = match1.group(2)  # F hoặc P
+        station = match1.group(3)  # RIN, FLA, etc.
+        # Validate SN: phải bắt đầu bằng 18 và có 13 digits
+        if sn.startswith('18') and len(sn) == 13:
+            return (sn, status, station, part_number)
+    
+    # Pattern 2: Tìm SN 18xxxxxxxxxxx ở bất kỳ đâu, sau đó tìm _Status_Station_
+    sn_match = re.search(r'(18\d{11})', name)
+    if sn_match:
+        sn = sn_match.group(1)
+        after_sn = name[name.find(sn) + len(sn):]
+        pattern2 = r'_([FP])_([A-Z0-9]+)_'
+        match2 = re.search(pattern2, after_sn)
+        if match2:
+            status = match2.group(1)
+            station = match2.group(2)
+            return (sn, status, station, part_number)
+    
+    return None
+
+# Function to get cache file path for a date
+def get_cache_file_path(date):
+    """Get cache file path for a specific date"""
+    date_str = date.strftime('%Y-%m-%d')
+    cache_filename = f"daily_test_{date_str}.pkl"
+    return os.path.join(app.config['CACHE_FOLDER'], cache_filename)
+
+# Function to load cached data for a date
+def load_cached_data(date):
+    """Load cached data for a specific date if exists"""
+    cache_file = get_cache_file_path(date)
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'rb') as f:
+                return pickle.load(f)
+        except Exception:
+            return None
+    return None
+
+# Function to save data to cache for a date
+def save_to_cache(date, data):
+    """Save data to cache for a specific date"""
+    cache_file = get_cache_file_path(date)
+    try:
+        with open(cache_file, 'wb') as f:
+            pickle.dump(data, f)
+    except Exception:
+        pass
+
+# Function to load daily test data from network path with caching
+def load_daily_test_data(start_date, end_date):
+    """
+    Load test data từ network path cho date range với caching
+    Returns: dict với test results grouped by WO, station, part number
+    """
+    base_path = r"\\10.16.137.111\Oberon\L10"
+    
+    all_sns = set()
+    sn_test_info = defaultdict(list)  # {sn: [(date, status, station, filename, wo, part_number), ...]}
+    sn_pass_rin = set()  # SNs đã PASS ở RIN
+    station_stats = defaultdict(lambda: {'pass': 0, 'fail': 0})  # {station: {'pass': X, 'fail': Y}}
+    wo_station_stats = defaultdict(lambda: defaultdict(lambda: {'pass': 0, 'fail': 0}))  # {wo: {station: {'pass': X, 'fail': Y}}}
+    part_station_stats = defaultdict(lambda: defaultdict(lambda: {'pass': 0, 'fail': 0}))  # {part_number: {station: {'pass': X, 'fail': Y}}}
+    part_stats = defaultdict(lambda: {'pass': 0, 'fail': 0})  # {part_number: {'pass': X, 'fail': Y}}
+    
+    # Load SN -> WO mapping
+    sn_wo_mapping = load_fa_work_log()
+    
+    # Track part numbers per SN (một SN có thể có nhiều part numbers nếu test nhiều lần)
+    sn_part_numbers = defaultdict(set)  # {sn: {part_number1, part_number2, ...}}
+    
+    # Iterate through date range with caching
+    current_date = start_date
+    while current_date <= end_date:
+        # Try to load from cache first
+        cached_data = load_cached_data(current_date)
+        
+        if cached_data:
+            # Use cached data
+            cached_sns = cached_data.get('all_sns', set())
+            cached_test_info = cached_data.get('sn_test_info', {})
+            cached_pass_rin = cached_data.get('sn_pass_rin', set())
+            cached_station_stats = cached_data.get('station_stats', {})
+            cached_wo_station_stats = cached_data.get('wo_station_stats', {})
+            cached_part_station_stats = cached_data.get('part_station_stats', {})
+            cached_part_stats = cached_data.get('part_stats', {})
+            cached_sn_part_numbers = cached_data.get('sn_part_numbers', {})
+            
+            # Merge cached data into main data structures
+            all_sns.update(cached_sns)
+            sn_pass_rin.update(cached_pass_rin)
+            
+            for sn, test_list in cached_test_info.items():
+                if sn not in sn_test_info:
+                    sn_test_info[sn] = []
+                sn_test_info[sn].extend(test_list)
+            
+            for station, stats in cached_station_stats.items():
+                station_stats[station]['pass'] += stats.get('pass', 0)
+                station_stats[station]['fail'] += stats.get('fail', 0)
+            
+            for wo, wo_stations in cached_wo_station_stats.items():
+                for station, stats in wo_stations.items():
+                    wo_station_stats[wo][station]['pass'] += stats.get('pass', 0)
+                    wo_station_stats[wo][station]['fail'] += stats.get('fail', 0)
+            
+            for part, part_stations in cached_part_station_stats.items():
+                for station, stats in part_stations.items():
+                    part_station_stats[part][station]['pass'] += stats.get('pass', 0)
+                    part_station_stats[part][station]['fail'] += stats.get('fail', 0)
+            
+            for part, stats in cached_part_stats.items():
+                part_stats[part]['pass'] += stats.get('pass', 0)
+                part_stats[part]['fail'] += stats.get('fail', 0)
+            
+            for sn, part_nums in cached_sn_part_numbers.items():
+                if isinstance(part_nums, list):
+                    sn_part_numbers[sn].update(part_nums)
+                else:
+                    sn_part_numbers[sn].update([part_nums])
+        else:
+            # Load from network path and cache it
+            year = current_date.strftime("%Y")
+            month = current_date.strftime("%m")
+            day = current_date.strftime("%d")
+            dir_path = os.path.join(base_path, year, month, day)
+            
+            # Data structures for this date only
+            date_sns = set()
+            date_test_info = defaultdict(list)
+            date_pass_rin = set()
+            date_station_stats = defaultdict(lambda: {'pass': 0, 'fail': 0})
+            date_wo_station_stats = defaultdict(lambda: defaultdict(lambda: {'pass': 0, 'fail': 0}))
+            date_part_station_stats = defaultdict(lambda: defaultdict(lambda: {'pass': 0, 'fail': 0}))
+            date_part_stats = defaultdict(lambda: {'pass': 0, 'fail': 0})
+            date_sn_part_numbers = defaultdict(set)
+            
+            if os.path.isdir(dir_path):
+                zip_files = glob.glob(os.path.join(dir_path, "**", "*.zip"), recursive=True)
+                
+                for file_path in zip_files:
+                    filename = os.path.basename(file_path)
+                    parsed = parse_test_filename(filename)
+                    
+                    if parsed:
+                        sn, status, station, part_number = parsed
+                        date_sns.add(sn)
+                        all_sns.add(sn)
+                        wo = sn_wo_mapping.get(sn, 'No WO')
+                        wo = normalize_wo(wo) if wo != 'No WO' else wo
+                        
+                        # Track part number for this SN
+                        date_sn_part_numbers[sn].add(part_number)
+                        sn_part_numbers[sn].add(part_number)
+                        
+                        test_entry = {
+                            'date': current_date,
+                            'status': status,
+                            'station': station,
+                            'filename': filename,
+                            'wo': wo,
+                            'part_number': part_number
+                        }
+                        
+                        date_test_info[sn].append(test_entry)
+                        if sn not in sn_test_info:
+                            sn_test_info[sn] = []
+                        sn_test_info[sn].append(test_entry)
+                        
+                        if status == 'F':  # Fail
+                            station_stats[station]['fail'] += 1
+                            wo_station_stats[wo][station]['fail'] += 1
+                            part_station_stats[part_number][station]['fail'] += 1
+                            part_stats[part_number]['fail'] += 1
+                            
+                            date_station_stats[station]['fail'] += 1
+                            date_wo_station_stats[wo][station]['fail'] += 1
+                            date_part_station_stats[part_number][station]['fail'] += 1
+                            date_part_stats[part_number]['fail'] += 1
+                        elif status == 'P':  # Pass
+                            station_stats[station]['pass'] += 1
+                            wo_station_stats[wo][station]['pass'] += 1
+                            part_station_stats[part_number][station]['pass'] += 1
+                            part_stats[part_number]['pass'] += 1
+                            
+                            date_station_stats[station]['pass'] += 1
+                            date_wo_station_stats[wo][station]['pass'] += 1
+                            date_part_station_stats[part_number][station]['pass'] += 1
+                            date_part_stats[part_number]['pass'] += 1
+                            
+                            if station == 'RIN':
+                                date_pass_rin.add(sn)
+                                sn_pass_rin.add(sn)
+            
+            # Cache the data for this date
+            cache_data = {
+                'all_sns': date_sns,
+                'sn_test_info': dict(date_test_info),
+                'sn_pass_rin': date_pass_rin,
+                'station_stats': dict(date_station_stats),
+                'wo_station_stats': dict(date_wo_station_stats),
+                'part_station_stats': dict(date_part_station_stats),
+                'part_stats': dict(date_part_stats),
+                'sn_part_numbers': {k: list(v) for k, v in date_sn_part_numbers.items()},
+                'cached_date': current_date
+            }
+            save_to_cache(current_date, cache_data)
+        
+        current_date += timedelta(days=1)
+    
+    # Calculate totals by part number (count unique SNs per part number)
+    part_tray_stats = defaultdict(lambda: {'pass': 0, 'fail': 0, 'total': 0})
+    for sn in all_sns:
+        is_pass = sn in sn_pass_rin
+        # Một SN có thể có nhiều part numbers, đếm cho mỗi part number
+        for part_num in sn_part_numbers[sn]:
+            part_tray_stats[part_num]['total'] += 1
+            if is_pass:
+                part_tray_stats[part_num]['pass'] += 1
+            else:
+                part_tray_stats[part_num]['fail'] += 1
+    
+    # Calculate totals
+    total_trays = len(all_sns)
+    total_pass = len(sn_pass_rin)
+    total_fail = total_trays - total_pass
+    
+    return {
+        'all_sns': all_sns,
+        'sn_test_info': dict(sn_test_info),
+        'sn_pass_rin': sn_pass_rin,
+        'station_stats': dict(station_stats),
+        'wo_station_stats': dict(wo_station_stats),
+        'part_station_stats': dict(part_station_stats),
+        'part_stats': dict(part_stats),
+        'part_tray_stats': dict(part_tray_stats),
+        'sn_part_numbers': {k: list(v) for k, v in sn_part_numbers.items()},
+        'total_trays': total_trays,
+        'total_pass': total_pass,
+        'total_fail': total_fail,
+        'sn_wo_mapping': sn_wo_mapping
+    }
 
 # Function to parse date from text (format: MM/DD or M/D)
 def parse_date_from_text(text):
@@ -182,8 +500,8 @@ def load_fa_work_log():
                     wo_str = normalize_wo(wo)  # Normalize WO format
                     if sn_str:
                         sn_wo_mapping[sn_str] = wo_str
-    except Exception as e:
-        print(f"Error loading FA Work Log: {e}")
+    except Exception:
+        pass
     
     return sn_wo_mapping
 
@@ -209,8 +527,7 @@ def load_data(filename=None):
     
     try:
         df = pd.read_excel(excel_file, sheet_name='VR-TS1', header=1)
-    except Exception as e:
-        print(f"Error reading Excel file: {e}")
+    except Exception:
         return None
     
     sn_col = 'sn'
@@ -322,10 +639,6 @@ def load_data(filename=None):
                 'is_completed': is_completed
             })
         
-        # Debug: print if no dispositions found but text exists
-        if not nv_dispositions and nv_disp_text and str(nv_disp_text).strip():
-            print(f"Warning: No dispositions parsed from row {idx}, SN: {sn_str}")
-            print(f"  Text: {str(nv_disp_text)[:200]}...")
         
         disposition_by_row[idx] = {
             'dispositions': row_dispositions,
@@ -889,14 +1202,354 @@ def get_wo_statistics():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/daily-test-analysis')
+def daily_test_analysis_page():
+    """Render Daily Test Analysis page"""
+    return render_template('daily_test_analysis.html', ip=get_local_ip())
+
+@app.route('/api/daily-test-analysis')
+def get_daily_test_analysis():
+    """Get daily test analysis data with date range filters"""
+    try:
+        start_date_str = request.args.get('start_date', '')
+        end_date_str = request.args.get('end_date', '')
+        
+        if not start_date_str or not end_date_str:
+            return jsonify({'error': 'Start date and end date are required'}), 400
+        
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+        
+        if start_date > end_date:
+            return jsonify({'error': 'Start date must be before end date'}), 400
+        
+        # Load test data
+        test_data = load_daily_test_data(start_date, end_date)
+        
+        # Prepare WO statistics
+        wo_stats = defaultdict(lambda: {
+            'wo': '',
+            'tray_pass': 0,
+            'tray_fail': 0,
+            'stations': defaultdict(lambda: {'pass': 0, 'fail': 0})
+        })
+        
+        # Prepare Part Number statistics
+        part_stats = defaultdict(lambda: {
+            'part_number': '',
+            'tray_pass': 0,
+            'tray_fail': 0,
+            'tray_total': 0,
+            'stations': defaultdict(lambda: {'pass': 0, 'fail': 0})
+        })
+        
+        # Track 1 time pass statistics
+        one_time_pass_wo = defaultdict(lambda: {'total': 0, 'one_time_pass': 0})
+        one_time_pass_part = defaultdict(lambda: {'total': 0, 'one_time_pass': 0})
+        
+        # Process SN test info
+        for sn, test_list in test_data['sn_test_info'].items():
+            wo = test_list[0]['wo'] if test_list else 'No WO'
+            
+            # Determine if SN passed (must pass RIN)
+            is_pass = sn in test_data['sn_pass_rin']
+            
+            # Check if SN is 1 time pass:
+            # 1. All tests must be pass (no fail at any station)
+            # 2. Must have pass at RIN station
+            # 3. Only 1 test entry per station (no retest)
+            is_one_time_pass = False
+            if is_pass and test_list:
+                # Check if all tests are pass
+                all_pass = all(test['status'] == 'P' for test in test_list)
+                # Check if has RIN pass
+                has_rin_pass = any(test['station'] == 'RIN' and test['status'] == 'P' for test in test_list)
+                # Check if only 1 test per station (no retest)
+                stations_count = {}
+                for test in test_list:
+                    st = test['station']
+                    stations_count[st] = stations_count.get(st, 0) + 1
+                no_retest = all(count == 1 for count in stations_count.values())
+                
+                is_one_time_pass = all_pass and has_rin_pass and no_retest
+            
+            # Update WO statistics
+            if wo not in wo_stats:
+                wo_stats[wo]['wo'] = wo
+            if is_pass:
+                wo_stats[wo]['tray_pass'] += 1
+            else:
+                wo_stats[wo]['tray_fail'] += 1
+            
+            # Update 1 time pass statistics for WO
+            one_time_pass_wo[wo]['total'] += 1
+            if is_one_time_pass:
+                one_time_pass_wo[wo]['one_time_pass'] += 1
+            
+            # Update Part Number statistics (count unique SN per part number)
+            part_numbers_for_sn = test_data['sn_part_numbers'].get(sn, [])
+            for part_num in part_numbers_for_sn:
+                if part_num not in part_stats:
+                    part_stats[part_num]['part_number'] = part_num
+                part_stats[part_num]['tray_total'] += 1
+                if is_pass:
+                    part_stats[part_num]['tray_pass'] += 1
+                else:
+                    part_stats[part_num]['tray_fail'] += 1
+                
+                # Update 1 time pass statistics for Part Number
+                one_time_pass_part[part_num]['total'] += 1
+                if is_one_time_pass:
+                    one_time_pass_part[part_num]['one_time_pass'] += 1
+            
+            # Count by station for both WO and Part Number
+            for test in test_list:
+                station = test['station']
+                status = test['status']
+                part_num = test.get('part_number', 'Unknown')
+                
+                if status == 'P':
+                    wo_stats[wo]['stations'][station]['pass'] += 1
+                    part_stats[part_num]['stations'][station]['pass'] += 1
+                elif status == 'F':
+                    wo_stats[wo]['stations'][station]['fail'] += 1
+                    part_stats[part_num]['stations'][station]['fail'] += 1
+        
+        # Helper function to calculate station pass percentages
+        def calculate_station_pass_percentages(stations_dict):
+            """Calculate pass percentages for each station"""
+            station_pcts = {}
+            for station, st_stats in stations_dict.items():
+                st_total = st_stats['pass'] + st_stats['fail']
+                st_pass_pct = (st_stats['pass'] / st_total * 100) if st_total > 0 else 0
+                station_pcts[station] = round(st_pass_pct, 2)
+            return station_pcts
+        
+        # Get WO -> Part Number mapping for sorting
+        wo_part_mapping = {}
+        for sn, test_list in test_data['sn_test_info'].items():
+            wo = test_list[0]['wo'] if test_list else 'No WO'
+            part_numbers = test_data['sn_part_numbers'].get(sn, [])
+            if wo not in wo_part_mapping and part_numbers:
+                wo_part_mapping[wo] = part_numbers[0]  # Use first part number
+        
+        # Convert to list for JSON with percentages
+        wo_list = []
+        for wo, stats in wo_stats.items():
+            total_trays = stats['tray_pass'] + stats['tray_fail']
+            pass_pct = (stats['tray_pass'] / total_trays * 100) if total_trays > 0 else 0
+            fail_pct = (stats['tray_fail'] / total_trays * 100) if total_trays > 0 else 0
+            
+            # Calculate station percentages using helper function
+            station_pcts = calculate_station_pass_percentages(stats['stations'])
+            
+            wo_list.append({
+                'wo': wo,
+                'tray_pass': stats['tray_pass'],
+                'tray_fail': stats['tray_fail'],
+                'tray_total': total_trays,
+                'pass_percentage': round(pass_pct, 2),
+                'fail_percentage': round(fail_pct, 2),
+                'stations': {k: dict(v) for k, v in stats['stations'].items()},
+                'station_pass_percentages': station_pcts,
+                'part_number': wo_part_mapping.get(wo, 'Unknown')
+            })
+        # Sort by part number first, then by WO
+        wo_list.sort(key=lambda x: (x['part_number'], x['wo']))
+        
+        # Convert part number statistics to list with percentages
+        part_list = []
+        for part_num, stats in part_stats.items():
+            pass_pct = (stats['tray_pass'] / stats['tray_total'] * 100) if stats['tray_total'] > 0 else 0
+            fail_pct = (stats['tray_fail'] / stats['tray_total'] * 100) if stats['tray_total'] > 0 else 0
+            
+            # Calculate station percentages using helper function
+            station_pcts = calculate_station_pass_percentages(stats['stations'])
+            
+            part_list.append({
+                'part_number': part_num,
+                'tray_pass': stats['tray_pass'],
+                'tray_fail': stats['tray_fail'],
+                'tray_total': stats['tray_total'],
+                'pass_percentage': round(pass_pct, 2),
+                'fail_percentage': round(fail_pct, 2),
+                'stations': {k: dict(v) for k, v in stats['stations'].items()},
+                'station_pass_percentages': station_pcts
+            })
+        part_list.sort(key=lambda x: x['part_number'])
+        
+        # Prepare station statistics with percentages
+        station_list = []
+        for station, stats in test_data['station_stats'].items():
+            total = stats['pass'] + stats['fail']
+            pass_pct = (stats['pass'] / total * 100) if total > 0 else 0
+            fail_pct = (stats['fail'] / total * 100) if total > 0 else 0
+            station_list.append({
+                'station': station,
+                'pass': stats['pass'],
+                'fail': stats['fail'],
+                'total': total,
+                'pass_percentage': round(pass_pct, 2),
+                'fail_percentage': round(fail_pct, 2)
+            })
+        # Sort stations according to custom order: FLA > FLB > AST > FTS > FCT > RIN
+        def get_station_sort_key(station_item):
+            station = station_item['station']
+            try:
+                return STATION_ORDER.index(station)
+            except ValueError:
+                return len(STATION_ORDER) + 1
+        station_list.sort(key=get_station_sort_key)
+        
+        # Helper function to create heatmap rows
+        def create_heatmap_rows(data_list, station_key='station_pass_percentages', 
+                                id_key='wo', extra_keys=None):
+            """Create heatmap rows from data list"""
+            # Collect all stations
+            all_stations = set()
+            for item in data_list:
+                all_stations.update(item[station_key].keys())
+            all_stations = sort_stations(all_stations)
+            
+            # Create rows
+            rows = []
+            for item in data_list:
+                row = {id_key: item[id_key]}
+                if extra_keys:
+                    for key in extra_keys:
+                        row[key] = item.get(key, '')
+                for station in all_stations:
+                    row[station] = item[station_key].get(station, 0)
+                rows.append(row)
+            
+            return rows, all_stations
+        
+        # Prepare heatmap data: WO x Station (Pass %)
+        wo_station_heatmap, all_stations = create_heatmap_rows(
+            wo_list, 
+            station_key='station_pass_percentages',
+            id_key='wo',
+            extra_keys=['part_number']
+        )
+        
+        # Prepare heatmap data: Part Number x Station (Pass %)
+        part_station_heatmap, _ = create_heatmap_rows(
+            part_list,
+            station_key='station_pass_percentages',
+            id_key='part_number',
+            extra_keys=None
+        )
+        
+        # Prepare 1 time pass statistics: WO grouped by Part Number
+        one_time_pass_list = []
+        for wo_item in wo_list:
+            wo = wo_item['wo']
+            part_num = wo_item['part_number']
+            stats = one_time_pass_wo[wo]
+            one_time_pass_pct = (stats['one_time_pass'] / stats['total'] * 100) if stats['total'] > 0 else 0
+            
+            one_time_pass_list.append({
+                'part_number': part_num,
+                'wo': wo,
+                'total': stats['total'],
+                'one_time_pass': stats['one_time_pass'],
+                'one_time_pass_percentage': round(one_time_pass_pct, 2)
+            })
+        # Sort by part number first, then by WO
+        one_time_pass_list.sort(key=lambda x: (x['part_number'], x['wo']))
+        
+        return jsonify({
+            'total_trays': test_data['total_trays'],
+            'total_pass': test_data['total_pass'],
+            'total_fail': test_data['total_fail'],
+            'wo_statistics': wo_list,
+            'part_statistics': part_list,
+            'station_statistics': station_list,
+            'wo_station_heatmap': wo_station_heatmap,
+            'part_station_heatmap': part_station_heatmap,
+            'all_stations': all_stations,
+            'one_time_pass_statistics': one_time_pass_list
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/daily-test-sn-details')
+def get_sn_details():
+    """Get detailed SN information for a specific WO, station, or part number"""
+    try:
+        start_date_str = request.args.get('start_date', '')
+        end_date_str = request.args.get('end_date', '')
+        wo = request.args.get('wo', '')
+        station = request.args.get('station', '')
+        part_number = request.args.get('part_number', '')
+        status_filter = request.args.get('status', '')  # 'pass' or 'fail'
+        
+        if not start_date_str or not end_date_str:
+            return jsonify({'error': 'Start date and end date are required'}), 400
+        
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+        
+        test_data = load_daily_test_data(start_date, end_date)
+        
+        result = []
+        for sn, test_list in test_data['sn_test_info'].items():
+            wo_sn = test_list[0]['wo'] if test_list else 'No WO'
+            is_pass = sn in test_data['sn_pass_rin']
+            part_numbers_for_sn = test_data['sn_part_numbers'].get(sn, [])
+            
+            # Apply filters
+            if wo and wo != 'ALL' and wo_sn != wo:
+                continue
+            if part_number and part_number != 'ALL' and part_number not in part_numbers_for_sn:
+                continue
+            if status_filter:
+                if status_filter.lower() == 'pass' and not is_pass:
+                    continue
+                if status_filter.lower() == 'fail' and is_pass:
+                    continue
+            
+            # Get stations for this SN
+            stations = {}
+            for test in test_list:
+                st = test['station']
+                if st not in stations:
+                    stations[st] = {'pass': 0, 'fail': 0}
+                if test['status'] == 'P':
+                    stations[st]['pass'] += 1
+                else:
+                    stations[st]['fail'] += 1
+            
+            # Filter by station if specified
+            if station and station != 'ALL':
+                if station not in stations:
+                    continue
+            
+            result.append({
+                'sn': sn,
+                'wo': wo_sn,
+                'part_numbers': part_numbers_for_sn,
+                'status': 'PASS' if is_pass else 'FAIL',
+                'stations': stations,
+                'test_count': len(test_list)
+            })
+        
+        return jsonify({
+            'data': result,
+            'count': len(result)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     local_ip = get_local_ip()
+    port = 5001
     print("=" * 80)
     print("VR-TS1 Bonepile Statistics Dashboard")
     print("=" * 80)
     print(f"Starting server...")
-    print(f"Local access: http://localhost:5000")
-    print(f"Network access: http://{local_ip}:5000")
+    print(f"Local access: http://localhost:{port}")
+    print(f"Network access: http://{local_ip}:{port}")
     print("=" * 80)
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    app.run(debug=True, host='0.0.0.0', port=port)
 

@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Test Analysis</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        
+        .filter-section {
+            background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f5 100%);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .filter-section h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .filter-section label {
+            display: inline-block;
+            margin-right: 15px;
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+        
+        .filter-section input[type="date"] {
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            margin-left: 5px;
+        }
+        
+        .filter-section input[type="date"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            padding: 12px 25px;
+            margin: 5px;
+            cursor: pointer;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        #summarySection {
+            margin-top: 30px;
+        }
+        
+        .summary-metrics {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .metric-box {
+            flex: 1;
+            min-width: 200px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transition: transform 0.2s;
+        }
+        
+        .metric-box:hover {
+            transform: scale(1.05);
+        }
+        
+        .metric-box h3 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            opacity: 0.9;
+        }
+        
+        .metric-box .value {
+            font-size: 32px;
+            font-weight: bold;
+        }
+        
+        .chart-container {
+            margin: 30px 0;
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .chart-container h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        .button-group {
+            margin: 20px 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .button-group button {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(5px);
+        }
+        
+        .modal-content {
+            background: white;
+            margin: 3% auto;
+            padding: 30px;
+            width: 90%;
+            max-width: 1000px;
+            border-radius: 12px;
+            max-height: 85vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        
+        .close {
+            float: right;
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #999;
+            transition: color 0.2s;
+        }
+        
+        .close:hover {
+            color: #333;
+        }
+        
+        .modal-content h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: bold;
+            position: sticky;
+            top: 0;
+        }
+        
+        tr:hover {
+            background: #f5f5f5;
+        }
+        
+        .status-pass {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        
+        .status-fail {
+            color: #f44336;
+            font-weight: bold;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Back to Dashboard</a>
+        <h1>📊 Daily Test Analysis</h1>
+        
+        <div class="filter-section">
+            <h3>Date Range Filter</h3>
+            <label>Start Date: <input type="date" id="startDate"></label>
+            <label>End Date: <input type="date" id="endDate"></label>
+            <button onclick="loadAnalysis()">Load Analysis</button>
+        </div>
+        
+        <div id="summarySection" style="display: none;">
+            <div class="summary-metrics">
+                <div class="metric-box" onclick="showSNDetails('all')" style="cursor: pointer;" title="Click to view all SN details">
+                    <h3>Total Trays</h3>
+                    <div class="value" id="totalTrays">0</div>
+                    <div class="metric-label" style="font-size: 14px; margin-top: 5px;" id="totalTraysPct">(100%)</div>
+                    <div class="metric-label" style="font-size: 11px; margin-top: 5px; opacity: 0.8;">Click to view details</div>
+                </div>
+                <div class="metric-box" onclick="showSNDetails('pass')" style="background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); cursor: pointer;" title="Click to view pass SN details">
+                    <h3>Total Pass</h3>
+                    <div class="value" id="totalPass">0</div>
+                    <div class="metric-label" style="font-size: 14px; margin-top: 5px;" id="totalPassPct">(0%)</div>
+                    <div class="metric-label" style="font-size: 11px; margin-top: 5px; opacity: 0.8;">Click to view details</div>
+                </div>
+                <div class="metric-box" onclick="showSNDetails('fail')" style="background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%); cursor: pointer;" title="Click to view fail SN details">
+                    <h3>Total Fail</h3>
+                    <div class="value" id="totalFail">0</div>
+                    <div class="metric-label" style="font-size: 14px; margin-top: 5px;" id="totalFailPct">(0%)</div>
+                    <div class="metric-label" style="font-size: 11px; margin-top: 5px; opacity: 0.8;">Click to view details</div>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h2 style="margin: 0;">1. Pass Percentage by Work Order (WO)</h2>
+                    <button id="woToggleBtn" onclick="toggleWOChart()" style="padding: 8px 15px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">Switch to Count</button>
+                </div>
+                <canvas id="woChart"></canvas>
+                <p style="margin-top: 10px; color: #666; font-size: 14px;">
+                    Click on a bar to view detailed SN information for that WO
+                </p>
+            </div>
+            
+            <div class="chart-container">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h2 style="margin: 0;">2. Pass Percentage by Part Number</h2>
+                    <button id="partToggleBtn" onclick="togglePartChart()" style="padding: 8px 15px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">Switch to Count</button>
+                </div>
+                <canvas id="partChart"></canvas>
+                <p style="margin-top: 10px; color: #666; font-size: 14px;">
+                    Click on a bar to view detailed SN information for that part number
+                </p>
+            </div>
+            
+            <div class="chart-container">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h2 style="margin: 0;">3. Fail/Pass Percentage by Station</h2>
+                    <button id="stationToggleBtn" onclick="toggleStationChart()" style="padding: 8px 15px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">Switch to Count</button>
+                </div>
+                <canvas id="stationChart"></canvas>
+                <p style="margin-top: 10px; color: #666; font-size: 14px;">
+                    Click on a bar to view detailed SN information for that station
+                </p>
+            </div>
+            
+            <div class="chart-container">
+                <h2>4. Heatmap: WO x Station (Pass %)</h2>
+                <div id="woStationHeatmap" style="overflow-x: auto; margin: 20px 0;"></div>
+                <p style="margin-top: 10px; color: #666; font-size: 14px;">
+                    Shows Pass percentage for each WO at each station. WOs are grouped by Part Number.
+                </p>
+            </div>
+            
+            <div class="chart-container">
+                <h2>5. Heatmap: Part Number x Station (Pass %)</h2>
+                <div id="partStationHeatmap" style="overflow-x: auto; margin: 20px 0;"></div>
+                <p style="margin-top: 10px; color: #666; font-size: 14px;">
+                    Shows Pass percentage for each Part Number at each station.
+                </p>
+            </div>
+            
+            <div class="chart-container">
+                <h2>6. 1 Time Pass Rate by Part Number and WO</h2>
+                <div id="oneTimePassTable" style="overflow-x: auto; margin: 20px 0;"></div>
+                <p style="margin-top: 10px; color: #666; font-size: 14px;">
+                    Shows the percentage of SNs that passed all stations in one test (no retest) and passed RIN. Grouped by Part Number and WO.
+                </p>
+            </div>
+            
+        </div>
+        
+        <div id="loadingSection" style="display: none;" class="loading">
+            <p>Loading analysis data... Please wait.</p>
+        </div>
+        
+        <div id="errorSection" style="display: none;" class="error"></div>
+    </div>
+    
+    <!-- Modal for SN Details -->
+    <div id="snModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2>Serial Number Details</h2>
+            <div id="snModalContent"></div>
+        </div>
+    </div>
+    
+    <script>
+        let woChart = null;
+        let partChart = null;
+        let stationChart = null;
+        let currentData = null;
+        let woChartMode = 'percentage'; // 'percentage' or 'count'
+        let partChartMode = 'percentage'; // 'percentage' or 'count'
+        let stationChartMode = 'percentage'; // 'percentage' or 'count'
+        
+        function loadAnalysis() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (!startDate || !endDate) {
+                alert('Please select both start and end dates');
+                return;
+            }
+            
+            // Show loading
+            document.getElementById('summarySection').style.display = 'none';
+            document.getElementById('loadingSection').style.display = 'block';
+            document.getElementById('errorSection').style.display = 'none';
+            
+            fetch(`/api/daily-test-analysis?start_date=${startDate}&end_date=${endDate}`)
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('loadingSection').style.display = 'none';
+                    
+                    if (data.error) {
+                        document.getElementById('errorSection').textContent = 'Error: ' + data.error;
+                        document.getElementById('errorSection').style.display = 'block';
+                        return;
+                    }
+                    
+                    currentData = data;
+                    document.getElementById('summarySection').style.display = 'block';
+                    
+                    // Update summary with percentages
+                    const totalTrays = data.total_trays;
+                    const totalPass = data.total_pass;
+                    const totalFail = data.total_fail;
+                    
+                    document.getElementById('totalTrays').textContent = totalTrays;
+                    document.getElementById('totalPass').textContent = totalPass;
+                    document.getElementById('totalFail').textContent = totalFail;
+                    
+                    // Calculate and display percentages
+                    const passPct = totalTrays > 0 ? ((totalPass / totalTrays) * 100).toFixed(1) : 0;
+                    const failPct = totalTrays > 0 ? ((totalFail / totalTrays) * 100).toFixed(1) : 0;
+                    
+                    document.getElementById('totalTraysPct').textContent = '(100%)';
+                    document.getElementById('totalPassPct').textContent = `(${passPct}%)`;
+                    document.getElementById('totalFailPct').textContent = `(${failPct}%)`;
+                    
+                    // Update charts
+                    updateWOChart(data);
+                    updatePartChart(data);
+                    updateStationChart(data);
+                    updateWOStationHeatmap(data);
+                    updatePartStationHeatmap(data);
+                    updateOneTimePassTable(data);
+                })
+                .catch(err => {
+                    console.error('Error:', err);
+                    document.getElementById('loadingSection').style.display = 'none';
+                    document.getElementById('errorSection').textContent = 'Error loading analysis data: ' + err.message;
+                    document.getElementById('errorSection').style.display = 'block';
+                });
+        }
+        
+        function toggleWOChart() {
+            woChartMode = woChartMode === 'percentage' ? 'count' : 'percentage';
+            document.getElementById('woToggleBtn').textContent = woChartMode === 'percentage' ? 'Switch to Count' : 'Switch to %';
+            if (currentData) {
+                updateWOChart(currentData);
+            }
+        }
+        
+        function togglePartChart() {
+            partChartMode = partChartMode === 'percentage' ? 'count' : 'percentage';
+            document.getElementById('partToggleBtn').textContent = partChartMode === 'percentage' ? 'Switch to Count' : 'Switch to %';
+            if (currentData) {
+                updatePartChart(currentData);
+            }
+        }
+        
+        function toggleStationChart() {
+            stationChartMode = stationChartMode === 'percentage' ? 'count' : 'percentage';
+            document.getElementById('stationToggleBtn').textContent = stationChartMode === 'percentage' ? 'Switch to Count' : 'Switch to %';
+            if (currentData) {
+                updateStationChart(currentData);
+            }
+        }
+        
+        function updateWOChart(data) {
+            const ctx = document.getElementById('woChart').getContext('2d');
+            
+            if (woChart) {
+                woChart.destroy();
+            }
+            
+            // Prepare data: Group by WO, show Pass % and Fail % or Count
+            const woData = data.wo_statistics.slice(0, 30); // Limit to 30 WOs for readability
+            const woLabels = woData.map(s => s.wo || 'No WO');
+            
+            let passData, failData, yAxisLabel, yAxisMax, yAxisCallback;
+            
+            if (woChartMode === 'percentage') {
+                passData = woData.map(s => s.pass_percentage || 0);
+                failData = woData.map(s => s.fail_percentage || 0);
+                yAxisLabel = 'Pass % / Fail %';
+                yAxisMax = 100;
+                yAxisCallback = function(value) { return value + '%'; };
+            } else {
+                passData = woData.map(s => s.tray_pass || 0);
+                failData = woData.map(s => s.tray_fail || 0);
+                yAxisLabel = 'Count';
+                yAxisMax = null;
+                yAxisCallback = function(value) { return value; };
+            }
+            
+            woChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: woLabels,
+                    datasets: [{
+                        label: woChartMode === 'percentage' ? 'Pass %' : 'Pass Count',
+                        data: passData,
+                        backgroundColor: 'rgba(76, 175, 80, 0.8)',
+                        borderColor: 'rgba(76, 175, 80, 1)',
+                        borderWidth: 1
+                    }, {
+                        label: woChartMode === 'percentage' ? 'Fail %' : 'Fail Count',
+                        data: failData,
+                        backgroundColor: 'rgba(244, 67, 54, 0.8)',
+                        borderColor: 'rgba(244, 67, 54, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: { 
+                            beginAtZero: true,
+                            max: yAxisMax,
+                            ticks: {
+                                callback: yAxisCallback,
+                                stepSize: woChartMode === 'percentage' ? 10 : undefined
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                afterLabel: function(context) {
+                                    const index = context.dataIndex;
+                                    const wo = woData[index];
+                                    return `Total: ${wo.tray_total} (Pass: ${wo.tray_pass}, Fail: ${wo.tray_fail})`;
+                                }
+                            }
+                        }
+                    },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const idx = elements[0].index;
+                            const wo = woLabels[idx];
+                            showSNDetails('all', wo, 'ALL', 'ALL');
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updatePartChart(data) {
+            const ctx = document.getElementById('partChart').getContext('2d');
+            
+            if (partChart) {
+                partChart.destroy();
+            }
+            
+            // Prepare data: Group by Part Number, show Pass % and Fail % or Count
+            const partData = data.part_statistics.slice(0, 30); // Limit to 30 part numbers for readability
+            const partLabels = partData.map(s => s.part_number || 'Unknown');
+            
+            let passData, failData, yAxisMax, yAxisCallback;
+            
+            if (partChartMode === 'percentage') {
+                passData = partData.map(s => s.pass_percentage || 0);
+                failData = partData.map(s => s.fail_percentage || 0);
+                yAxisMax = 100;
+                yAxisCallback = function(value) { return value + '%'; };
+            } else {
+                passData = partData.map(s => s.tray_pass || 0);
+                failData = partData.map(s => s.tray_fail || 0);
+                yAxisMax = null;
+                yAxisCallback = function(value) { return value; };
+            }
+            
+            partChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: partLabels,
+                    datasets: [{
+                        label: partChartMode === 'percentage' ? 'Pass %' : 'Pass Count',
+                        data: passData,
+                        backgroundColor: 'rgba(76, 175, 80, 0.8)',
+                        borderColor: 'rgba(76, 175, 80, 1)',
+                        borderWidth: 1
+                    }, {
+                        label: partChartMode === 'percentage' ? 'Fail %' : 'Fail Count',
+                        data: failData,
+                        backgroundColor: 'rgba(244, 67, 54, 0.8)',
+                        borderColor: 'rgba(244, 67, 54, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: { 
+                            beginAtZero: true,
+                            max: yAxisMax,
+                            ticks: {
+                                callback: yAxisCallback,
+                                stepSize: partChartMode === 'percentage' ? 10 : undefined
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                afterLabel: function(context) {
+                                    const index = context.dataIndex;
+                                    const part = partData[index];
+                                    return `Total: ${part.tray_total} (Pass: ${part.tray_pass}, Fail: ${part.tray_fail})`;
+                                }
+                            }
+                        }
+                    },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const idx = elements[0].index;
+                            const part = partLabels[idx];
+                            showSNDetails('all', 'ALL', 'ALL', part);
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Station order: FLA > FLB > AST > FTS > FCT > RIN
+        const STATION_ORDER = ['FLA', 'FLB', 'AST', 'FTS', 'FCT', 'RIN'];
+        
+        function sortStations(stations) {
+            return stations.sort((a, b) => {
+                const indexA = STATION_ORDER.indexOf(a);
+                const indexB = STATION_ORDER.indexOf(b);
+                if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+                if (indexA === -1) return 1;
+                if (indexB === -1) return -1;
+                return indexA - indexB;
+            });
+        }
+        
+        function updateStationChart(data) {
+            const ctx = document.getElementById('stationChart').getContext('2d');
+            
+            if (stationChart) {
+                stationChart.destroy();
+            }
+            
+            // Prepare data: Show fail/pass percentage or count by station
+            const stationData = data.station_statistics;
+            // Sort stations according to custom order
+            const stationMap = {};
+            stationData.forEach(s => { stationMap[s.station] = s; });
+            const sortedStationNames = sortStations(Object.keys(stationMap));
+            const stationLabels = sortedStationNames;
+            const sortedStationData = sortedStationNames.map(name => stationMap[name]);
+            
+            let failData, passData, yAxisMax, yAxisCallback;
+            
+            if (stationChartMode === 'percentage') {
+                failData = sortedStationData.map(s => s.fail_percentage);
+                passData = sortedStationData.map(s => s.pass_percentage);
+                yAxisMax = 100;
+                yAxisCallback = function(value) { return value + '%'; };
+            } else {
+                failData = sortedStationData.map(s => s.fail);
+                passData = sortedStationData.map(s => s.pass);
+                yAxisMax = null;
+                yAxisCallback = function(value) { return value; };
+            }
+            
+            stationChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: stationLabels,
+                    datasets: [{
+                        label: stationChartMode === 'percentage' ? 'Fail %' : 'Fail Count',
+                        data: failData,
+                        backgroundColor: 'rgba(244, 67, 54, 0.8)',
+                        borderColor: 'rgba(244, 67, 54, 1)',
+                        borderWidth: 1
+                    }, {
+                        label: stationChartMode === 'percentage' ? 'Pass %' : 'Pass Count',
+                        data: passData,
+                        backgroundColor: 'rgba(76, 175, 80, 0.8)',
+                        borderColor: 'rgba(76, 175, 80, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: { 
+                            beginAtZero: true, 
+                            max: yAxisMax,
+                            ticks: {
+                                callback: yAxisCallback,
+                                stepSize: stationChartMode === 'percentage' ? 10 : undefined
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                afterLabel: function(context) {
+                                    const index = context.dataIndex;
+                                    const station = sortedStationData[index];
+                                    return `Total: ${station.total} (Pass: ${station.pass}, Fail: ${station.fail})`;
+                                }
+                            }
+                        }
+                    },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const idx = elements[0].index;
+                            const station = stationLabels[idx];
+                            showSNDetails('all', 'ALL', station, 'ALL');
+                        }
+                    }
+                }
+            });
+        }
+        
+        function showSNDetails(statusFilter, wo = 'ALL', station = 'ALL', partNumber = 'ALL') {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (!startDate || !endDate) {
+                alert('Please select both start and end dates');
+                return;
+            }
+            
+            let url = `/api/daily-test-sn-details?start_date=${startDate}&end_date=${endDate}`;
+            if (wo !== 'ALL') url += `&wo=${encodeURIComponent(wo)}`;
+            if (station !== 'ALL') url += `&station=${station}`;
+            if (partNumber !== 'ALL') url += `&part_number=${encodeURIComponent(partNumber)}`;
+            if (statusFilter !== 'all') url += `&status=${statusFilter}`;
+            
+            // Show loading in modal
+            document.getElementById('snModalContent').innerHTML = '<div class="loading">Loading SN details...</div>';
+            document.getElementById('snModal').style.display = 'block';
+            
+            fetch(url)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        document.getElementById('snModalContent').innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                        return;
+                    }
+                    
+                    let html = `<p style="margin-bottom: 15px;"><strong>Total: ${data.count} SNs</strong></p>`;
+                    
+                    if (data.count === 0) {
+                        html += '<p>No data found for the selected filters.</p>';
+                    } else {
+                        html += '<table><tr><th>SN</th><th>WO</th><th>Part Number(s)</th><th>Status</th><th>Stations (Pass/Fail)</th><th>Test Count</th></tr>';
+                        
+                        data.data.forEach(item => {
+                            const stationsStr = Object.entries(item.stations)
+                                .map(([st, stats]) => `${st}: ${stats.pass}P/${stats.fail}F`)
+                                .join(', ') || 'N/A';
+                            
+                            const partNumbersStr = (item.part_numbers && item.part_numbers.length > 0) 
+                                ? item.part_numbers.join(', ') 
+                                : 'Unknown';
+                            
+                            const statusClass = item.status === 'PASS' ? 'status-pass' : 'status-fail';
+                            
+                            html += `<tr>
+                                <td><strong>${item.sn}</strong></td>
+                                <td>${item.wo}</td>
+                                <td>${partNumbersStr}</td>
+                                <td class="${statusClass}">${item.status}</td>
+                                <td>${stationsStr}</td>
+                                <td>${item.test_count}</td>
+                            </tr>`;
+                        });
+                        
+                        html += '</table>';
+                    }
+                    
+                    document.getElementById('snModalContent').innerHTML = html;
+                })
+                .catch(err => {
+                    console.error('Error:', err);
+                    document.getElementById('snModalContent').innerHTML = `<div class="error">Error loading SN details: ${err.message}</div>`;
+                });
+        }
+        
+        function closeModal() {
+            document.getElementById('snModal').style.display = 'none';
+        }
+        
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('snModal');
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
+        
+        function updateWOStationHeatmap(data) {
+            const container = document.getElementById('woStationHeatmap');
+            container.innerHTML = '';
+            
+            if (!data.wo_station_heatmap || data.wo_station_heatmap.length === 0) {
+                container.innerHTML = '<p>No data available</p>';
+                return;
+            }
+            
+            const stations = sortStations([...(data.all_stations || [])]);
+            const heatmapData = data.wo_station_heatmap;
+            
+            // Group by part number
+            const partGroups = {};
+            heatmapData.forEach(row => {
+                const part = row.part_number || 'Unknown';
+                if (!partGroups[part]) {
+                    partGroups[part] = [];
+                }
+                partGroups[part].push(row);
+            });
+            
+            let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
+            
+            // Header
+            html += '<tr><th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; position: sticky; left: 0; z-index: 10;">Part Number</th>';
+            html += '<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; position: sticky; left: 100px; z-index: 10;">WO</th>';
+            stations.forEach(station => {
+                html += `<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; text-align: center; min-width: 80px;">${station}</th>`;
+            });
+            html += '</tr>';
+            
+            // Rows grouped by part number
+            Object.keys(partGroups).sort().forEach(part => {
+                const rows = partGroups[part];
+                rows.forEach((row, idx) => {
+                    html += '<tr>';
+                    if (idx === 0) {
+                        html += `<td rowspan="${rows.length}" style="padding: 8px; border: 1px solid #ddd; background: #f0f0f0; font-weight: bold; vertical-align: middle; text-align: center;">${part}</td>`;
+                    }
+                    html += `<td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">${row.wo}</td>`;
+                    stations.forEach(station => {
+                        const value = row[station] || 0;
+                        const color = getHeatmapColor(value);
+                        // Get pass count for this WO at this station
+                        const passCount = currentData.wo_statistics.find(w => w.wo === row.wo)?.stations[station]?.pass || 0;
+                        html += `<td style="padding: 8px; border: 1px solid #ddd; background: ${color}; text-align: center; font-weight: bold;" title="${row.wo} at ${station}: ${passCount} SNs passed">${value.toFixed(1)}%</td>`;
+                    });
+                    html += '</tr>';
+                });
+            });
+            
+            html += '</table>';
+            container.innerHTML = html;
+        }
+        
+        function updatePartStationHeatmap(data) {
+            const container = document.getElementById('partStationHeatmap');
+            container.innerHTML = '';
+            
+            if (!data.part_station_heatmap || data.part_station_heatmap.length === 0) {
+                container.innerHTML = '<p>No data available</p>';
+                return;
+            }
+            
+            const stations = sortStations([...(data.all_stations || [])]);
+            const heatmapData = data.part_station_heatmap;
+            
+            let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
+            
+            // Header
+            html += '<tr><th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; position: sticky; left: 0; z-index: 10;">Part Number</th>';
+            stations.forEach(station => {
+                html += `<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; text-align: center; min-width: 80px;">${station}</th>`;
+            });
+            html += '</tr>';
+            
+            // Rows
+            heatmapData.forEach(row => {
+                html += '<tr>';
+                html += `<td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">${row.part_number}</td>`;
+                stations.forEach(station => {
+                    const value = row[station] || 0;
+                    const color = getHeatmapColor(value);
+                    // Get pass count for this part number at this station
+                    const passCount = currentData.part_statistics.find(p => p.part_number === row.part_number)?.stations[station]?.pass || 0;
+                    html += `<td style="padding: 8px; border: 1px solid #ddd; background: ${color}; text-align: center; font-weight: bold;" title="${row.part_number} at ${station}: ${passCount} SNs passed">${value.toFixed(1)}%</td>`;
+                });
+                html += '</tr>';
+            });
+            
+            html += '</table>';
+            container.innerHTML = html;
+        }
+        
+        function getHeatmapColor(value) {
+            // Color gradient from red (0%) to green (100%)
+            if (value >= 90) return '#4CAF50'; // Green
+            if (value >= 80) return '#8BC34A'; // Light green
+            if (value >= 70) return '#CDDC39'; // Lime
+            if (value >= 60) return '#FFEB3B'; // Yellow
+            if (value >= 50) return '#FFC107'; // Amber
+            if (value >= 40) return '#FF9800'; // Orange
+            if (value >= 30) return '#FF5722'; // Deep orange
+            if (value >= 20) return '#F44336'; // Red
+            if (value >= 10) return '#D32F2F'; // Dark red
+            return '#B71C1C'; // Very dark red
+        }
+        
+        function updateOneTimePassTable(data) {
+            const container = document.getElementById('oneTimePassTable');
+            container.innerHTML = '';
+            
+            if (!data.one_time_pass_statistics || data.one_time_pass_statistics.length === 0) {
+                container.innerHTML = '<p>No data available</p>';
+                return;
+            }
+            
+            const heatmapData = data.one_time_pass_statistics;
+            
+            // Group by part number
+            const partGroups = {};
+            heatmapData.forEach(row => {
+                const part = row.part_number || 'Unknown';
+                if (!partGroups[part]) {
+                    partGroups[part] = [];
+                }
+                partGroups[part].push(row);
+            });
+            
+            let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
+            
+            // Header
+            html += '<tr><th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; position: sticky; left: 0; z-index: 10;">Part Number</th>';
+            html += '<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; position: sticky; left: 100px; z-index: 10;">WO</th>';
+            html += '<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; text-align: center; min-width: 120px;">1 Time Pass %</th>';
+            html += '<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; text-align: center; min-width: 100px;">1 Time Pass</th>';
+            html += '<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; text-align: center; min-width: 100px;">Total</th>';
+            html += '</tr>';
+            
+            // Rows grouped by part number
+            Object.keys(partGroups).sort().forEach(part => {
+                const rows = partGroups[part];
+                rows.forEach((row, idx) => {
+                    html += '<tr>';
+                    if (idx === 0) {
+                        html += `<td rowspan="${rows.length}" style="padding: 8px; border: 1px solid #ddd; background: #f0f0f0; font-weight: bold; vertical-align: middle; text-align: center;">${part}</td>`;
+                    }
+                    html += `<td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">${row.wo}</td>`;
+                    
+                    const value = row.one_time_pass_percentage || 0;
+                    const color = getHeatmapColor(value);
+                    html += `<td style="padding: 8px; border: 1px solid #ddd; background: ${color}; text-align: center; font-weight: bold;" title="${row.wo}: ${row.one_time_pass} out of ${row.total} SNs (${value.toFixed(1)}%)">${value.toFixed(1)}%</td>`;
+                    html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${row.one_time_pass}</td>`;
+                    html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${row.total}</td>`;
+                    html += '</tr>';
+                });
+            });
+            
+            html += '</table>';
+            container.innerHTML = html;
+        }
+        
+        // Set default dates (today and 7 days ago)
+        window.onload = function() {
+            const today = new Date();
+            const weekAgo = new Date();
+            weekAgo.setDate(today.getDate() - 7);
+            
+            document.getElementById('endDate').value = today.toISOString().split('T')[0];
+            document.getElementById('startDate').value = weekAgo.toISOString().split('T')[0];
+        }
+    </script>
+</body>
+</html>
+
