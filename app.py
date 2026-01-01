@@ -186,9 +186,20 @@ def load_cached_data(date):
     cache_file = get_cache_file_path(date)
     if os.path.exists(cache_file):
         try:
+            # Check file size first
+            file_size = os.path.getsize(cache_file)
+            if file_size == 0:
+                return None
+            
             with open(cache_file, 'rb') as f:
-                return pickle.load(f)
-        except Exception:
+                data = pickle.load(f)
+                # Validate that cached data has required keys
+                required_keys = ['all_sns', 'sn_test_info', 'sn_pass_rin', 'station_stats']
+                if not isinstance(data, dict) or not all(key in data for key in required_keys):
+                    return None
+                return data
+        except (EOFError, pickle.UnpicklingError, Exception):
+            # If cache is corrupt, return None to force reload
             return None
     return None
 
@@ -197,9 +208,27 @@ def save_to_cache(date, data):
     """Save data to cache for a specific date"""
     cache_file = get_cache_file_path(date)
     try:
-        with open(cache_file, 'wb') as f:
+        # Ensure cache directory exists
+        cache_dir = os.path.dirname(cache_file)
+        os.makedirs(cache_dir, exist_ok=True)
+        
+        # Use temporary file and rename for atomic write
+        temp_file = cache_file + '.tmp'
+        with open(temp_file, 'wb') as f:
             pickle.dump(data, f)
+        
+        # Atomic rename (works on Windows if target exists, may need to delete first)
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
+        os.rename(temp_file, cache_file)
     except Exception:
+        # Clean up temp file if exists
+        temp_file = cache_file + '.tmp'
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except:
+                pass
         pass
 
 # Function to load daily test data from network path with caching
@@ -290,76 +319,82 @@ def load_daily_test_data(start_date, end_date):
             date_part_stats = defaultdict(lambda: {'pass': 0, 'fail': 0})
             date_sn_part_numbers = defaultdict(set)
             
-            if os.path.isdir(dir_path):
-                zip_files = glob.glob(os.path.join(dir_path, "**", "*.zip"), recursive=True)
-                
-                for file_path in zip_files:
-                    filename = os.path.basename(file_path)
-                    parsed = parse_test_filename(filename)
+            # Check if network path is accessible
+            try:
+                if os.path.isdir(dir_path):
+                    zip_files = glob.glob(os.path.join(dir_path, "**", "*.zip"), recursive=True)
                     
-                    if parsed:
-                        sn, status, station, part_number = parsed
-                        date_sns.add(sn)
-                        all_sns.add(sn)
-                        wo = sn_wo_mapping.get(sn, 'No WO')
-                        wo = normalize_wo(wo) if wo != 'No WO' else wo
+                    for file_path in zip_files:
+                        filename = os.path.basename(file_path)
+                        parsed = parse_test_filename(filename)
                         
-                        # Track part number for this SN
-                        date_sn_part_numbers[sn].add(part_number)
-                        sn_part_numbers[sn].add(part_number)
-                        
-                        test_entry = {
-                            'date': current_date,
-                            'status': status,
-                            'station': station,
-                            'filename': filename,
-                            'wo': wo,
-                            'part_number': part_number
-                        }
-                        
-                        date_test_info[sn].append(test_entry)
-                        if sn not in sn_test_info:
-                            sn_test_info[sn] = []
-                        sn_test_info[sn].append(test_entry)
-                        
-                        if status == 'F':  # Fail
-                            station_stats[station]['fail'] += 1
-                            wo_station_stats[wo][station]['fail'] += 1
-                            part_station_stats[part_number][station]['fail'] += 1
-                            part_stats[part_number]['fail'] += 1
+                        if parsed:
+                            sn, status, station, part_number = parsed
+                            date_sns.add(sn)
+                            all_sns.add(sn)
+                            wo = sn_wo_mapping.get(sn, 'No WO')
+                            wo = normalize_wo(wo) if wo != 'No WO' else wo
                             
-                            date_station_stats[station]['fail'] += 1
-                            date_wo_station_stats[wo][station]['fail'] += 1
-                            date_part_station_stats[part_number][station]['fail'] += 1
-                            date_part_stats[part_number]['fail'] += 1
-                        elif status == 'P':  # Pass
-                            station_stats[station]['pass'] += 1
-                            wo_station_stats[wo][station]['pass'] += 1
-                            part_station_stats[part_number][station]['pass'] += 1
-                            part_stats[part_number]['pass'] += 1
+                            # Track part number for this SN
+                            date_sn_part_numbers[sn].add(part_number)
+                            sn_part_numbers[sn].add(part_number)
                             
-                            date_station_stats[station]['pass'] += 1
-                            date_wo_station_stats[wo][station]['pass'] += 1
-                            date_part_station_stats[part_number][station]['pass'] += 1
-                            date_part_stats[part_number]['pass'] += 1
+                            test_entry = {
+                                'date': current_date,
+                                'status': status,
+                                'station': station,
+                                'filename': filename,
+                                'wo': wo,
+                                'part_number': part_number
+                            }
                             
-                            if station == 'RIN':
-                                date_pass_rin.add(sn)
-                                sn_pass_rin.add(sn)
+                            date_test_info[sn].append(test_entry)
+                            if sn not in sn_test_info:
+                                sn_test_info[sn] = []
+                            sn_test_info[sn].append(test_entry)
+                            
+                            if status == 'F':  # Fail
+                                station_stats[station]['fail'] += 1
+                                wo_station_stats[wo][station]['fail'] += 1
+                                part_station_stats[part_number][station]['fail'] += 1
+                                part_stats[part_number]['fail'] += 1
+                                
+                                date_station_stats[station]['fail'] += 1
+                                date_wo_station_stats[wo][station]['fail'] += 1
+                                date_part_station_stats[part_number][station]['fail'] += 1
+                                date_part_stats[part_number]['fail'] += 1
+                            elif status == 'P':  # Pass
+                                station_stats[station]['pass'] += 1
+                                wo_station_stats[wo][station]['pass'] += 1
+                                part_station_stats[part_number][station]['pass'] += 1
+                                part_stats[part_number]['pass'] += 1
+                                
+                                date_station_stats[station]['pass'] += 1
+                                date_wo_station_stats[wo][station]['pass'] += 1
+                                date_part_station_stats[part_number][station]['pass'] += 1
+                                date_part_stats[part_number]['pass'] += 1
+                                
+                                if station == 'RIN':
+                                    date_pass_rin.add(sn)
+                                    sn_pass_rin.add(sn)
+            except (OSError, PermissionError):
+                # Network path not accessible, skip this date
+                pass
             
-            # Cache the data for this date
-            cache_data = {
-                'all_sns': date_sns,
-                'sn_test_info': dict(date_test_info),
-                'sn_pass_rin': date_pass_rin,
-                'station_stats': dict(date_station_stats),
-                'wo_station_stats': dict(date_wo_station_stats),
-                'part_station_stats': dict(date_part_station_stats),
-                'part_stats': dict(date_part_stats),
-                'sn_part_numbers': {k: list(v) for k, v in date_sn_part_numbers.items()},
-                'cached_date': current_date
-            }
-            save_to_cache(current_date, cache_data)
+            # Cache the data for this date (only if we processed files)
+            if date_sns or date_test_info:
+                cache_data = {
+                    'all_sns': date_sns,
+                    'sn_test_info': dict(date_test_info),
+                    'sn_pass_rin': date_pass_rin,
+                    'station_stats': dict(date_station_stats),
+                    'wo_station_stats': dict(date_wo_station_stats),
+                    'part_station_stats': dict(date_part_station_stats),
+                    'part_stats': dict(date_part_stats),
+                    'sn_part_numbers': {k: list(v) for k, v in date_sn_part_numbers.items()},
+                    'cached_date': current_date
+                }
+                save_to_cache(current_date, cache_data)
         
         current_date += timedelta(days=1)
     
