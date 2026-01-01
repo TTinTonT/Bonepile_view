@@ -205,7 +205,12 @@
             </div>
             <div>
                 <a href="/upload" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; display: inline-block; margin-right: 10px;">📤 Upload New File</a>
+                {% if show_daily_test_button %}
                 <a href="/daily-test-analysis" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; display: inline-block;">📊 Daily Test Analysis</a>
+                {% else %}
+                <!-- Daily Test Analysis temporarily disabled - running on port 5005 for development -->
+                <!-- <a href="/daily-test-analysis" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; display: inline-block;">📊 Daily Test Analysis</a> -->
+                {% endif %}
             </div>
         </div>
         

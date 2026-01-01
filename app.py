@@ -1576,6 +1576,12 @@ def get_sn_details():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# Context processor to inject show_daily_test_button=False for all templates
+@app.context_processor
+def inject_daily_test_button():
+    """Inject show_daily_test_button=False into all templates (default for main app)"""
+    return dict(show_daily_test_button=False)
+
 if __name__ == '__main__':
     local_ip = get_local_ip()
     port = 5001
