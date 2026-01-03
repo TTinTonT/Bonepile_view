@@ -481,9 +481,8 @@ def parse_dispositions_from_text(text):
             continue
         current_year = datetime.now().year
         try:
-            # Only include dispositions from December (month 12) onwards
-            if month < 12:
-                continue  # Skip months before December
+            # Cutoff date: December 1, 2025
+            cutoff_date = datetime(2025, 12, 1)
             
             # Try current year first
             date = datetime(current_year, month, day)
@@ -491,8 +490,8 @@ def parse_dispositions_from_text(text):
             if date > datetime.now():
                 date = datetime(current_year - 1, month, day)
             
-            # Only add if date is from December onwards (check both current and previous year)
-            if date.month >= 12:
+            # Only add if date >= December 1, 2025
+            if date >= cutoff_date:
                 dispositions.append((date, description))
         except ValueError:
             continue
