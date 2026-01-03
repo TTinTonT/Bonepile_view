@@ -266,6 +266,7 @@
             <label>Start Date: <input type="date" id="startDate"></label>
             <label>End Date: <input type="date" id="endDate"></label>
             <button onclick="loadAnalysis()">Load Analysis</button>
+            <button id="debugComparisonBtn" onclick="goToDebugComparison()" style="display: none; background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);">🔍 Debug Comparison (IGS vs NV)</button>
         </div>
         
         <div id="summarySection" style="display: none;">
@@ -426,6 +427,9 @@
                     updateWOStationHeatmap(data);
                     updatePartStationHeatmap(data);
                     updateOneTimePassTable(data);
+                    
+                    // Show debug comparison button
+                    document.getElementById('debugComparisonBtn').style.display = 'inline-block';
                 })
                 .catch(err => {
                     console.error('Error:', err);
@@ -808,6 +812,19 @@
             document.getElementById('snModal').style.display = 'none';
         }
         
+        function goToDebugComparison() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (!startDate || !endDate) {
+                alert('Please load analysis first');
+                return;
+            }
+            
+            // Navigate to debug comparison page with date parameters
+            window.location.href = `/debug-comparison?start_date=${startDate}&end_date=${endDate}`;
+        }
+        
         // Close modal when clicking outside
         window.onclick = function(event) {
             const modal = document.getElementById('snModal');
@@ -977,6 +994,19 @@
             
             html += '</table>';
             container.innerHTML = html;
+        }
+        
+        function goToDebugComparison() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (!startDate || !endDate) {
+                alert('Please load analysis first');
+                return;
+            }
+            
+            // Navigate to debug comparison page with date parameters
+            window.location.href = `/debug-comparison?start_date=${startDate}&end_date=${endDate}`;
         }
         
         // Set default dates (today and 7 days ago)

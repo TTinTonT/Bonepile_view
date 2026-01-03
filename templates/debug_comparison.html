@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Comparison - IGS vs NV</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        
+        .filter-section {
+            background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f5 100%);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .filter-section h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .filter-section label {
+            display: inline-block;
+            margin-right: 15px;
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+        
+        .filter-section input[type="date"] {
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            margin-left: 5px;
+        }
+        
+        button {
+            padding: 12px 25px;
+            margin: 5px;
+            cursor: pointer;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .summary-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .metric-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        .metric-box.nv-debug {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+        }
+        
+        .metric-box.igs-debug {
+            background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+        }
+        
+        .metric-box h3 {
+            font-size: 1.2em;
+            margin-bottom: 10px;
+        }
+        
+        .value {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .metric-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .chart-container h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 1.2em;
+            color: #666;
+        }
+        
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background: #f5f5f5;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        tr:hover {
+            background: #f9f9f9;
+        }
+        
+        .nv-section {
+            background: #e8f5e9;
+            border-left: 4px solid #4CAF50;
+        }
+        
+        .igs-section {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+        }
+        
+        .nv-header {
+            background: #4CAF50;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .igs-header {
+            background: #2196F3;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .better-value {
+            font-weight: bold;
+            font-size: 1.1em;
+            color: #2e7d32;
+        }
+        
+        .better-value.igs {
+            color: #1565c0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/daily-test-analysis" class="back-link" title="Return to Daily Test Analysis page">← Back to Daily Test Analysis</a>
+        <h1 title="Compare debug performance between IGS team and NV team. NV Debug: SNs in Bonepile list. IGS Debug: SNs NOT in Bonepile list with at least 1 fail.">🔍 Debug Comparison: IGS vs NV</h1>
+        
+        <div class="filter-section">
+            <h3 title="Select date range to analyze debug comparison statistics. The analysis will include all test data from start date to end date (inclusive).">Date Range Filter</h3>
+            <label title="Start date of the analysis period (inclusive)">Start Date: <input type="date" id="startDate"></label>
+            <label title="End date of the analysis period (inclusive)">End Date: <input type="date" id="endDate"></label>
+            <button onclick="loadComparison()" title="Load and display debug comparison statistics for the selected date range">Load Comparison</button>
+        </div>
+        
+        <div id="loadingSection" class="loading" style="display: none;">
+            Loading comparison data...
+        </div>
+        
+        <div id="errorSection" class="error" style="display: none;"></div>
+        
+        <div id="contentSection" style="display: none;">
+            <!-- Overall Summary -->
+            <div class="summary-metrics">
+                <div class="metric-box nv-debug" title="NV Debug: SNs that exist in Bonepile list (NV_IGS_VR144_Bonepile.xlsx). These are debugged by NV team.">
+                    <h3>NV Debug (In Bonepile)</h3>
+                    <div class="value" id="nvTotal" title="Total number of unique SNs that are in Bonepile list">0</div>
+                    <div class="metric-label">Total SNs</div>
+                    <div class="metric-label" style="margin-top: 10px;">
+                        Pass: <span id="nvPass" title="Number of NV Debug SNs that passed at RIN station (final pass)">0</span> (<span id="nvPassPct" title="Percentage of NV Debug SNs that passed: (Pass / Total) × 100%">0%</span>)<br>
+                        Fail: <span id="nvFail" title="Number of NV Debug SNs that failed (did not pass at RIN station)">0</span> (<span id="nvFailPct" title="Percentage of NV Debug SNs that failed: (Fail / Total) × 100%">0%</span>)<br>
+                        Pass RIN: <span id="nvPassRin" title="Number of NV Debug SNs that passed at RIN station (same as Pass count)">0</span> (<span id="nvPassRinPct" title="Percentage of NV Debug SNs that passed RIN: (Pass RIN / Total) × 100%">0%</span>)
+                    </div>
+                </div>
+                
+                <div class="metric-box igs-debug" title="IGS Debug: SNs that do NOT exist in Bonepile list AND have at least 1 fail. These are debugged by IGS team.">
+                    <h3>IGS Debug (Not in Bonepile)</h3>
+                    <div class="value" id="igsTotal" title="Total number of unique SNs that are NOT in Bonepile list AND have at least 1 fail">0</div>
+                    <div class="metric-label">Total SNs</div>
+                    <div class="metric-label" style="margin-top: 10px;">
+                        Pass: <span id="igsPass" title="Number of IGS Debug SNs that passed at RIN station (final pass)">0</span> (<span id="igsPassPct" title="Percentage of IGS Debug SNs that passed: (Pass / Total) × 100%">0%</span>)<br>
+                        Fail: <span id="igsFail" title="Number of IGS Debug SNs that failed (did not pass at RIN station)">0</span> (<span id="igsFailPct" title="Percentage of IGS Debug SNs that failed: (Fail / Total) × 100%">0%</span>)<br>
+                        Pass RIN: <span id="igsPassRin" title="Number of IGS Debug SNs that passed at RIN station (same as Pass count)">0</span> (<span id="igsPassRinPct" title="Percentage of IGS Debug SNs that passed RIN: (Pass RIN / Total) × 100%">0%</span>)
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Daily Statistics Chart -->
+            <div class="chart-container">
+                <h2 title="Bar chart showing daily Pass/Fail counts for NV Debug and IGS Debug SNs. Each bar represents one day in the selected date range.">Daily Pass/Fail Comparison</h2>
+                <canvas id="dailyChart"></canvas>
+            </div>
+            
+            <!-- Station Statistics Chart -->
+            <div class="chart-container">
+                <h2 title="Bar chart comparing Pass percentage (%) between NV Debug and IGS Debug at each station (FLA, FLB, AST, FTS, FCT, RIN).">Station Pass/Fail Comparison</h2>
+                <canvas id="stationChart"></canvas>
+            </div>
+            
+            <!-- Daily Statistics Table -->
+            <div class="chart-container">
+                <h2 title="Detailed daily statistics showing Pass/Fail counts and percentages for each day in the selected date range.">Daily Statistics Table</h2>
+                <table id="dailyTable">
+                    <thead>
+                        <tr>
+                            <th title="Date in YYYY-MM-DD format">Date</th>
+                            <th class="nv-header" title="Total number of unique NV Debug SNs tested on this day">NV Debug - Total</th>
+                            <th class="nv-header" title="Number of NV Debug SNs that passed at RIN station on this day (with percentage)">NV Debug - Pass</th>
+                            <th class="nv-header" title="Number of NV Debug SNs that failed on this day (with percentage)">NV Debug - Fail</th>
+                            <th class="nv-header" title="Number of NV Debug SNs that passed RIN station on this day (with percentage)">NV Debug - Pass RIN</th>
+                            <th class="igs-header" title="Total number of unique IGS Debug SNs tested on this day">IGS Debug - Total</th>
+                            <th class="igs-header" title="Number of IGS Debug SNs that passed at RIN station on this day (with percentage)">IGS Debug - Pass</th>
+                            <th class="igs-header" title="Number of IGS Debug SNs that failed on this day (with percentage)">IGS Debug - Fail</th>
+                            <th class="igs-header" title="Number of IGS Debug SNs that passed RIN station on this day (with percentage)">IGS Debug - Pass RIN</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dailyTableBody">
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Station Statistics Table -->
+            <div class="chart-container">
+                <h2 title="Statistics by station showing Pass/Fail counts and percentages for NV Debug vs IGS Debug at each test station.">Station Statistics Table</h2>
+                <table id="stationTable">
+                    <thead>
+                        <tr>
+                            <th title="Test station name (FLA, FLB, AST, FTS, FCT, RIN)">Station</th>
+                            <th class="nv-header" title="Total number of test results for NV Debug SNs at this station">NV Debug - Total</th>
+                            <th class="nv-header" title="Number of Pass results for NV Debug SNs at this station">NV Debug - Pass</th>
+                            <th class="nv-header" title="Number of Fail results for NV Debug SNs at this station">NV Debug - Fail</th>
+                            <th class="nv-header" title="Pass percentage for NV Debug at this station: (Pass / Total) × 100%">NV Debug - Pass %</th>
+                            <th class="igs-header" title="Total number of test results for IGS Debug SNs at this station">IGS Debug - Total</th>
+                            <th class="igs-header" title="Number of Pass results for IGS Debug SNs at this station">IGS Debug - Pass</th>
+                            <th class="igs-header" title="Number of Fail results for IGS Debug SNs at this station">IGS Debug - Fail</th>
+                            <th class="igs-header" title="Pass percentage for IGS Debug at this station: (Pass / Total) × 100%">IGS Debug - Pass %</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stationTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let dailyChart = null;
+        let stationChart = null;
+        
+        // Set default dates (today and 7 days ago)
+        window.onload = function() {
+            const today = new Date();
+            const weekAgo = new Date(today);
+            weekAgo.setDate(today.getDate() - 7);
+            
+            document.getElementById('endDate').value = today.toISOString().split('T')[0];
+            document.getElementById('startDate').value = weekAgo.toISOString().split('T')[0];
+        };
+        
+        function loadComparison() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (!startDate || !endDate) {
+                alert('Please select both start and end dates');
+                return;
+            }
+            
+            // Show loading
+            document.getElementById('contentSection').style.display = 'none';
+            document.getElementById('loadingSection').style.display = 'block';
+            document.getElementById('errorSection').style.display = 'none';
+            
+            fetch(`/api/debug-comparison?start_date=${startDate}&end_date=${endDate}`)
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('loadingSection').style.display = 'none';
+                    
+                    if (data.error) {
+                        document.getElementById('errorSection').textContent = 'Error: ' + data.error;
+                        document.getElementById('errorSection').style.display = 'block';
+                        return;
+                    }
+                    
+                    document.getElementById('contentSection').style.display = 'block';
+                    
+                    // Update overall summary
+                    updateSummary(data.overall_stats);
+                    
+                    // Update charts
+                    updateDailyChart(data.daily_stats);
+                    updateStationChart(data.station_stats);
+                    
+                    // Update tables
+                    updateDailyTable(data.daily_stats);
+                    updateStationTable(data.station_stats);
+                })
+                .catch(error => {
+                    document.getElementById('loadingSection').style.display = 'none';
+                    document.getElementById('errorSection').textContent = 'Error: ' + error.message;
+                    document.getElementById('errorSection').style.display = 'block';
+                });
+        }
+        
+        function updateSummary(stats) {
+            // NV Debug
+            document.getElementById('nvTotal').textContent = stats.nv_debug.total;
+            document.getElementById('nvPass').textContent = stats.nv_debug.pass;
+            document.getElementById('nvPassPct').textContent = stats.nv_debug.pass_pct + '%';
+            document.getElementById('nvFail').textContent = stats.nv_debug.fail;
+            document.getElementById('nvFailPct').textContent = stats.nv_debug.fail_pct + '%';
+            document.getElementById('nvPassRin').textContent = stats.nv_debug.pass_rin;
+            document.getElementById('nvPassRinPct').textContent = stats.nv_debug.pass_rin_pct + '%';
+            
+            // IGS Debug
+            document.getElementById('igsTotal').textContent = stats.igs_debug.total;
+            document.getElementById('igsPass').textContent = stats.igs_debug.pass;
+            document.getElementById('igsPassPct').textContent = stats.igs_debug.pass_pct + '%';
+            document.getElementById('igsFail').textContent = stats.igs_debug.fail;
+            document.getElementById('igsFailPct').textContent = stats.igs_debug.fail_pct + '%';
+            document.getElementById('igsPassRin').textContent = stats.igs_debug.pass_rin;
+            document.getElementById('igsPassRinPct').textContent = stats.igs_debug.pass_rin_pct + '%';
+        }
+        
+        function updateDailyChart(dailyStats) {
+            const ctx = document.getElementById('dailyChart').getContext('2d');
+            
+            if (dailyChart) {
+                dailyChart.destroy();
+            }
+            
+            const dates = dailyStats.map(d => d.date);
+            const nvPass = dailyStats.map(d => d.nv_debug.pass);
+            const nvFail = dailyStats.map(d => d.nv_debug.fail);
+            const igsPass = dailyStats.map(d => d.igs_debug.pass);
+            const igsFail = dailyStats.map(d => d.igs_debug.fail);
+            
+            dailyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: dates,
+                    datasets: [
+                        {
+                            label: 'NV Debug - Pass',
+                            data: nvPass,
+                            backgroundColor: 'rgba(76, 175, 80, 0.7)',
+                            borderColor: 'rgba(76, 175, 80, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'NV Debug - Fail',
+                            data: nvFail,
+                            backgroundColor: 'rgba(244, 67, 54, 0.7)',
+                            borderColor: 'rgba(244, 67, 54, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'IGS Debug - Pass',
+                            data: igsPass,
+                            backgroundColor: 'rgba(33, 150, 243, 0.7)',
+                            borderColor: 'rgba(33, 150, 243, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'IGS Debug - Fail',
+                            data: igsFail,
+                            backgroundColor: 'rgba(255, 152, 0, 0.7)',
+                            borderColor: 'rgba(255, 152, 0, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            stacked: false
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateStationChart(stationStats) {
+            const ctx = document.getElementById('stationChart').getContext('2d');
+            
+            if (stationChart) {
+                stationChart.destroy();
+            }
+            
+            const stations = stationStats.map(s => s.station);
+            const nvPassPct = stationStats.map(s => s.nv_debug.pass_pct);
+            const igsPassPct = stationStats.map(s => s.igs_debug.pass_pct);
+            
+            stationChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: stations,
+                    datasets: [
+                        {
+                            label: 'NV Debug - Pass %',
+                            data: nvPassPct,
+                            backgroundColor: 'rgba(76, 175, 80, 0.7)',
+                            borderColor: 'rgba(76, 175, 80, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'IGS Debug - Pass %',
+                            data: igsPassPct,
+                            backgroundColor: 'rgba(33, 150, 243, 0.7)',
+                            borderColor: 'rgba(33, 150, 243, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: {
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    label += context.parsed.y.toFixed(2) + '%';
+                                    return label;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateDailyTable(dailyStats) {
+            const tbody = document.getElementById('dailyTableBody');
+            tbody.innerHTML = '';
+            
+            dailyStats.forEach(day => {
+                const row = tbody.insertRow();
+                
+                // Date column
+                row.insertCell(0).textContent = day.date;
+                
+                // NV Debug columns (xanh lá)
+                const nvTotalCell = row.insertCell(1);
+                nvTotalCell.textContent = day.nv_debug.total;
+                nvTotalCell.className = 'nv-section';
+                
+                const nvPassCell = row.insertCell(2);
+                nvPassCell.textContent = day.nv_debug.pass + ' (' + day.nv_debug.pass_pct + '%)';
+                nvPassCell.className = 'nv-section';
+                // Highlight if NV Pass % is higher than IGS Pass %
+                if (day.nv_debug.pass_pct > day.igs_debug.pass_pct) {
+                    nvPassCell.classList.add('better-value');
+                }
+                
+                const nvFailCell = row.insertCell(3);
+                nvFailCell.textContent = day.nv_debug.fail + ' (' + (100 - day.nv_debug.pass_pct).toFixed(2) + '%)';
+                nvFailCell.className = 'nv-section';
+                // Highlight if NV Fail % is lower than IGS Fail %
+                if ((100 - day.nv_debug.pass_pct) < (100 - day.igs_debug.pass_pct)) {
+                    nvFailCell.classList.add('better-value');
+                }
+                
+                const nvPassRinCell = row.insertCell(4);
+                nvPassRinCell.textContent = day.nv_debug.pass_rin + ' (' + day.nv_debug.pass_rin_pct + '%)';
+                nvPassRinCell.className = 'nv-section';
+                // Highlight if NV Pass RIN % is higher than IGS Pass RIN %
+                if (day.nv_debug.pass_rin_pct > day.igs_debug.pass_rin_pct) {
+                    nvPassRinCell.classList.add('better-value');
+                }
+                
+                // IGS Debug columns (xanh dương)
+                const igsTotalCell = row.insertCell(5);
+                igsTotalCell.textContent = day.igs_debug.total;
+                igsTotalCell.className = 'igs-section';
+                
+                const igsPassCell = row.insertCell(6);
+                igsPassCell.textContent = day.igs_debug.pass + ' (' + day.igs_debug.pass_pct + '%)';
+                igsPassCell.className = 'igs-section';
+                // Highlight if IGS Pass % is higher than NV Pass %
+                if (day.igs_debug.pass_pct > day.nv_debug.pass_pct) {
+                    igsPassCell.classList.add('better-value', 'igs');
+                }
+                
+                const igsFailCell = row.insertCell(7);
+                igsFailCell.textContent = day.igs_debug.fail + ' (' + (100 - day.igs_debug.pass_pct).toFixed(2) + '%)';
+                igsFailCell.className = 'igs-section';
+                // Highlight if IGS Fail % is lower than NV Fail %
+                if ((100 - day.igs_debug.pass_pct) < (100 - day.nv_debug.pass_pct)) {
+                    igsFailCell.classList.add('better-value', 'igs');
+                }
+                
+                const igsPassRinCell = row.insertCell(8);
+                igsPassRinCell.textContent = day.igs_debug.pass_rin + ' (' + day.igs_debug.pass_rin_pct + '%)';
+                igsPassRinCell.className = 'igs-section';
+                // Highlight if IGS Pass RIN % is higher than NV Pass RIN %
+                if (day.igs_debug.pass_rin_pct > day.nv_debug.pass_rin_pct) {
+                    igsPassRinCell.classList.add('better-value', 'igs');
+                }
+            });
+        }
+        
+        function updateStationTable(stationStats) {
+            const tbody = document.getElementById('stationTableBody');
+            tbody.innerHTML = '';
+            
+            stationStats.forEach(station => {
+                const row = tbody.insertRow();
+                
+                // Station column
+                row.insertCell(0).textContent = station.station;
+                
+                // NV Debug columns (xanh lá)
+                const nvTotalCell = row.insertCell(1);
+                nvTotalCell.textContent = station.nv_debug.total;
+                nvTotalCell.className = 'nv-section';
+                
+                const nvPassCell = row.insertCell(2);
+                nvPassCell.textContent = station.nv_debug.pass;
+                nvPassCell.className = 'nv-section';
+                
+                const nvFailCell = row.insertCell(3);
+                nvFailCell.textContent = station.nv_debug.fail;
+                nvFailCell.className = 'nv-section';
+                
+                const nvPassPctCell = row.insertCell(4);
+                nvPassPctCell.textContent = station.nv_debug.pass_pct + '%';
+                nvPassPctCell.className = 'nv-section';
+                // Highlight if NV Pass % is higher than IGS Pass %
+                if (station.nv_debug.pass_pct > station.igs_debug.pass_pct) {
+                    nvPassPctCell.classList.add('better-value');
+                }
+                
+                // IGS Debug columns (xanh dương)
+                const igsTotalCell = row.insertCell(5);
+                igsTotalCell.textContent = station.igs_debug.total;
+                igsTotalCell.className = 'igs-section';
+                
+                const igsPassCell = row.insertCell(6);
+                igsPassCell.textContent = station.igs_debug.pass;
+                igsPassCell.className = 'igs-section';
+                
+                const igsFailCell = row.insertCell(7);
+                igsFailCell.textContent = station.igs_debug.fail;
+                igsFailCell.className = 'igs-section';
+                
+                const igsPassPctCell = row.insertCell(8);
+                igsPassPctCell.textContent = station.igs_debug.pass_pct + '%';
+                igsPassPctCell.className = 'igs-section';
+                // Highlight if IGS Pass % is higher than NV Pass %
+                if (station.igs_debug.pass_pct > station.nv_debug.pass_pct) {
+                    igsPassPctCell.classList.add('better-value', 'igs');
+                }
+            });
+        }
+    </script>
+</body>
+</html>
+

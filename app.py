@@ -88,8 +88,8 @@ def is_waiting_for_material(text):
     if pd.isna(text):
         return False
     text_str = str(text).lower()
-    # Check for "waiting for material", "waiting for cx9", or "waiting for strata"
-    material_keywords = ['waiting for material', 'waiting for cx9', 'waiting for strata']
+    # Check for "waiting for material", "waiting for cx9", "waiting for strata", "waiting for new material", or "waiting for new strata"
+    material_keywords = ['waiting for material', 'waiting for cx9', 'waiting for strata', 'waiting for new material', 'waiting for new strata']
     return any(keyword in text_str for keyword in material_keywords)
 
 # Function to normalize WO format
@@ -539,6 +539,85 @@ def load_fa_work_log():
     
     return sn_wo_mapping
 
+# Function to load Bonepile list with fail_time mapping
+def load_bonepile_list():
+    """Load NV_IGS_VR144_Bonepile.xlsx and return dict mapping SN -> fail_time (datetime)"""
+    bonepile_fail_time = {}  # {sn: fail_time (datetime)}
+    bonepile_file = 'NV_IGS_VR144_Bonepile.xlsx'
+    
+    # Check in upload folder first
+    upload_folder = app.config['UPLOAD_FOLDER']
+    bonepile_upload = os.path.join(upload_folder, 'NV_IGS_VR144_Bonepile.xlsx')
+    
+    if os.path.exists(bonepile_upload):
+        bonepile_file = bonepile_upload
+    elif not os.path.exists(bonepile_file):
+        return bonepile_fail_time
+    
+    try:
+        df = pd.read_excel(bonepile_file, sheet_name='VR-TS1', header=1)
+        sn_col = 'sn'
+        fail_time_col = 'fail_time'  # Column C
+        
+        # Remove duplicate header
+        if len(df) > 0 and sn_col in df.columns:
+            if str(df.iloc[0][sn_col]).strip() == 'sn':
+                df = df.iloc[1:].reset_index(drop=True)
+        
+        # Filter valid SNs
+        valid_sn_records = df[df[sn_col].apply(is_valid_sn)].copy()
+        
+        # Get SN -> fail_time mapping
+        for idx, row in valid_sn_records.iterrows():
+            sn = row[sn_col]
+            if isinstance(sn, (int, float)):
+                sn_str = str(int(sn))
+            else:
+                sn_str = str(sn).strip().replace('.0', '')
+            
+            if not sn_str:
+                continue
+            
+            # Get fail_time from column C
+            fail_time = row.get(fail_time_col)
+            
+            # Parse fail_time to datetime
+            fail_time_dt = None
+            if pd.notna(fail_time):
+                try:
+                    # Try to parse as datetime
+                    if isinstance(fail_time, datetime):
+                        fail_time_dt = fail_time
+                    elif isinstance(fail_time, str):
+                        # Try various date formats
+                        for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S']:
+                            try:
+                                fail_time_dt = datetime.strptime(fail_time.strip(), fmt)
+                                break
+                            except ValueError:
+                                continue
+                    elif isinstance(fail_time, (int, float)):
+                        # Excel serial date number
+                        try:
+                            fail_time_dt = pd.to_datetime(fail_time, origin='1899-12-30', unit='D')
+                            if isinstance(fail_time_dt, pd.Timestamp):
+                                fail_time_dt = fail_time_dt.to_pydatetime()
+                        except:
+                            pass
+                except Exception:
+                    pass
+            
+            # Store mapping (only if fail_time is valid)
+            if fail_time_dt:
+                bonepile_fail_time[sn_str] = fail_time_dt
+    except Exception as e:
+        print(f"[ERROR] load_bonepile_list: {e}", flush=True)
+        import traceback
+        print(traceback.format_exc(), flush=True)
+        pass
+    
+    return bonepile_fail_time
+
 # Load data
 def load_data(filename=None):
     if filename is None:
@@ -745,7 +824,9 @@ def load_data(filename=None):
         }
         
         # Check if waiting for material
-        if 'waiting for material' in igs_status_lower or 'waiting for strata' in igs_status_lower or 'waiting for cx9' in igs_status_lower:
+        if ('waiting for material' in igs_status_lower or 'waiting for strata' in igs_status_lower or 
+            'waiting for cx9' in igs_status_lower or 'waiting for new material' in igs_status_lower or 
+            'waiting for new strata' in igs_status_lower):
             current_dispositions_waiting_material.append(disposition_info)
         # Check if waiting/testing (but not "waiting for disposition")
         elif ('testing' in igs_status_lower or 'waiting' in igs_status_lower) and 'waiting for disposition' not in igs_status_lower:
@@ -1573,6 +1654,297 @@ def get_sn_details():
             'count': len(result)
         })
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/debug-comparison')
+def debug_comparison():
+    """Render debug comparison page"""
+    return render_template('debug_comparison.html')
+
+@app.route('/api/debug-comparison')
+def get_debug_comparison():
+    """Get debug comparison data (IGS vs NV)"""
+    try:
+        start_date_str = request.args.get('start_date', '')
+        end_date_str = request.args.get('end_date', '')
+        
+        if not start_date_str or not end_date_str:
+            return jsonify({'error': 'Start date and end date are required'}), 400
+        
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+        
+        if start_date > end_date:
+            return jsonify({'error': 'Start date must be before end date'}), 400
+        
+        # Load Bonepile list with fail_time mapping
+        bonepile_fail_time = load_bonepile_list()  # {sn: fail_time (datetime)}
+        
+        # Load daily test data
+        test_data = load_daily_test_data(start_date, end_date)
+        
+        # Categorize SNs: NV debug vs IGS debug based on test date vs fail_time
+        nv_debug_sns = set()  # SNs tested after fail_time
+        igs_debug_sns = set()  # SNs tested before fail_time or not in Bonepile
+        
+        # Statistics by date
+        daily_stats = defaultdict(lambda: {
+            'nv_debug': {'pass': 0, 'fail': 0, 'total': 0, 'pass_rin': 0},
+            'igs_debug': {'pass': 0, 'fail': 0, 'total': 0, 'pass_rin': 0}
+        })
+        
+        # Statistics by station
+        station_stats = defaultdict(lambda: {
+            'nv_debug': {'pass': 0, 'fail': 0, 'total': 0},
+            'igs_debug': {'pass': 0, 'fail': 0, 'total': 0}
+        })
+        
+        # Overall statistics
+        overall_stats = {
+            'nv_debug': {'pass': 0, 'fail': 0, 'total': 0, 'pass_rin': 0},
+            'igs_debug': {'pass': 0, 'fail': 0, 'total': 0, 'pass_rin': 0}
+        }
+        
+        # Process each SN and each test entry
+        for sn, test_list in test_data['sn_test_info'].items():
+            # Get fail_time for this SN from Bonepile
+            fail_time = bonepile_fail_time.get(sn)
+            
+            # Determine if SN passed (must pass RIN)
+            is_pass = sn in test_data['sn_pass_rin']
+            
+            # Process each test entry individually
+            for test_entry in test_list:
+                test_date = test_entry.get('date', start_date)
+                if isinstance(test_date, str):
+                    test_date = datetime.strptime(test_date, '%Y-%m-%d')
+                elif isinstance(test_date, pd.Timestamp):
+                    test_date = test_date.to_pydatetime()
+                
+                # Normalize test_date to date only (remove time)
+                test_date = test_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                
+                # Determine debug type based on test_date vs fail_time
+                # - If SN has fail_time in Bonepile:
+                #   - test_date < fail_time → IGS Debug
+                #   - test_date >= fail_time → NV Debug
+                # - If SN does NOT have fail_time in Bonepile:
+                #   - Only count as IGS Debug if has at least 1 fail
+                if fail_time:
+                    # Normalize fail_time to date only
+                    fail_time_date = fail_time.replace(hour=0, minute=0, second=0, microsecond=0)
+                    
+                    if test_date < fail_time_date:
+                        # Test before fail_time → IGS Debug
+                        debug_type = 'igs_debug'
+                        igs_debug_sns.add(sn)
+                    else:
+                        # Test after or on fail_time → NV Debug
+                        debug_type = 'nv_debug'
+                        nv_debug_sns.add(sn)
+                else:
+                    # SN not in Bonepile or no fail_time
+                    # Count as IGS Debug if:
+                    # 1. Test is a fail, OR
+                    # 2. Test is pass at RIN station (Pass RIN must be counted)
+                    if test_entry['status'] == 'F':
+                        debug_type = 'igs_debug'
+                        igs_debug_sns.add(sn)
+                    elif test_entry['status'] == 'P' and test_entry['station'] == 'RIN':
+                        # Pass at RIN must be counted (Pass RIN is subset of Pass)
+                        debug_type = 'igs_debug'
+                        igs_debug_sns.add(sn)
+                    else:
+                        # Skip if pass at other stations (not RIN) and not in Bonepile
+                        continue
+                
+                # Update daily stats
+                date_str = test_date.strftime('%Y-%m-%d')
+                daily_stats[date_str][debug_type]['total'] += 1
+                if test_entry['status'] == 'P':
+                    daily_stats[date_str][debug_type]['pass'] += 1
+                    # If pass at RIN station, also count as Pass RIN (subset of Pass)
+                    if test_entry['station'] == 'RIN':
+                        daily_stats[date_str][debug_type]['pass_rin'] += 1
+                else:
+                    daily_stats[date_str][debug_type]['fail'] += 1
+                
+                # Update station stats
+                station = test_entry['station']
+                if test_entry['status'] == 'P':
+                    station_stats[station][debug_type]['pass'] += 1
+                else:
+                    station_stats[station][debug_type]['fail'] += 1
+                station_stats[station][debug_type]['total'] += 1
+            
+            # Track unique SNs for overall stats (count unique SNs, not test entries)
+            # A SN can belong to both IGS and NV debug if it has tests before and after fail_time
+            sn_has_igs_tests = False
+            sn_has_nv_tests = False
+            sn_has_igs_pass = False
+            sn_has_nv_pass = False
+            sn_has_igs_pass_rin = False
+            sn_has_nv_pass_rin = False
+            
+            # Check all test entries to determine SN's debug types
+            for test_entry in test_list:
+                test_date = test_entry.get('date', start_date)
+                if isinstance(test_date, str):
+                    test_date = datetime.strptime(test_date, '%Y-%m-%d')
+                elif isinstance(test_date, pd.Timestamp):
+                    test_date = test_date.to_pydatetime()
+                test_date = test_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                
+                # Determine debug type for this test entry
+                if fail_time:
+                    fail_time_date = fail_time.replace(hour=0, minute=0, second=0, microsecond=0)
+                    if test_date < fail_time_date:
+                        sn_has_igs_tests = True
+                        if test_entry['status'] == 'P':
+                            sn_has_igs_pass = True
+                            if test_entry['station'] == 'RIN':
+                                sn_has_igs_pass_rin = True
+                    else:
+                        sn_has_nv_tests = True
+                        if test_entry['status'] == 'P':
+                            sn_has_nv_pass = True
+                            if test_entry['station'] == 'RIN':
+                                sn_has_nv_pass_rin = True
+                else:
+                    # Not in Bonepile - only IGS if fail or pass at RIN
+                    if test_entry['status'] == 'F' or (test_entry['status'] == 'P' and test_entry['station'] == 'RIN'):
+                        sn_has_igs_tests = True
+                        if test_entry['status'] == 'P' and test_entry['station'] == 'RIN':
+                            sn_has_igs_pass = True
+                            sn_has_igs_pass_rin = True
+            
+            # Update overall stats (count unique SNs)
+            if sn_has_igs_tests:
+                overall_stats['igs_debug']['total'] += 1
+                if sn_has_igs_pass:
+                    overall_stats['igs_debug']['pass'] += 1
+                    if sn_has_igs_pass_rin:
+                        overall_stats['igs_debug']['pass_rin'] += 1
+                else:
+                    overall_stats['igs_debug']['fail'] += 1
+            
+            if sn_has_nv_tests:
+                overall_stats['nv_debug']['total'] += 1
+                if sn_has_nv_pass:
+                    overall_stats['nv_debug']['pass'] += 1
+                    if sn_has_nv_pass_rin:
+                        overall_stats['nv_debug']['pass_rin'] += 1
+                else:
+                    overall_stats['nv_debug']['fail'] += 1
+        
+        # Validate daily stats: Ensure Pass RIN <= Pass for consistency
+        # This ensures Pass RIN is always a subset of Pass
+        for date_str in daily_stats:
+            for debug_type in ['nv_debug', 'igs_debug']:
+                if daily_stats[date_str][debug_type]['pass_rin'] > daily_stats[date_str][debug_type]['pass']:
+                    # Cap Pass RIN at Pass value to ensure consistency
+                    daily_stats[date_str][debug_type]['pass_rin'] = daily_stats[date_str][debug_type]['pass']
+        
+        # Convert daily_stats to list sorted by date
+        daily_list = []
+        current_date = start_date
+        while current_date <= end_date:
+            date_str = current_date.strftime('%Y-%m-%d')
+            if date_str in daily_stats:
+                stats = daily_stats[date_str]
+                # Ensure Pass RIN <= Pass (double check for safety)
+                nv_pass_rin = min(stats['nv_debug']['pass_rin'], stats['nv_debug']['pass'])
+                igs_pass_rin = min(stats['igs_debug']['pass_rin'], stats['igs_debug']['pass'])
+                
+                daily_list.append({
+                    'date': date_str,
+                    'nv_debug': {
+                        'pass': stats['nv_debug']['pass'],
+                        'fail': stats['nv_debug']['fail'],
+                        'total': stats['nv_debug']['total'],
+                        'pass_rin': nv_pass_rin,
+                        'pass_pct': round((stats['nv_debug']['pass'] / stats['nv_debug']['total'] * 100) if stats['nv_debug']['total'] > 0 else 0, 2),
+                        'pass_rin_pct': round((nv_pass_rin / stats['nv_debug']['total'] * 100) if stats['nv_debug']['total'] > 0 else 0, 2)
+                    },
+                    'igs_debug': {
+                        'pass': stats['igs_debug']['pass'],
+                        'fail': stats['igs_debug']['fail'],
+                        'total': stats['igs_debug']['total'],
+                        'pass_rin': igs_pass_rin,
+                        'pass_pct': round((stats['igs_debug']['pass'] / stats['igs_debug']['total'] * 100) if stats['igs_debug']['total'] > 0 else 0, 2),
+                        'pass_rin_pct': round((igs_pass_rin / stats['igs_debug']['total'] * 100) if stats['igs_debug']['total'] > 0 else 0, 2)
+                    }
+                })
+            else:
+                daily_list.append({
+                    'date': date_str,
+                    'nv_debug': {'pass': 0, 'fail': 0, 'total': 0, 'pass_rin': 0, 'pass_pct': 0, 'pass_rin_pct': 0},
+                    'igs_debug': {'pass': 0, 'fail': 0, 'total': 0, 'pass_rin': 0, 'pass_pct': 0, 'pass_rin_pct': 0}
+                })
+            current_date += timedelta(days=1)
+        
+        # Convert station_stats to list sorted by station order
+        station_list = []
+        for station in sort_stations(station_stats.keys()):
+            stats = station_stats[station]
+            nv_total = stats['nv_debug']['total']
+            igs_total = stats['igs_debug']['total']
+            station_list.append({
+                'station': station,
+                'nv_debug': {
+                    'pass': stats['nv_debug']['pass'],
+                    'fail': stats['nv_debug']['fail'],
+                    'total': nv_total,
+                    'pass_pct': round((stats['nv_debug']['pass'] / nv_total * 100) if nv_total > 0 else 0, 2),
+                    'fail_pct': round((stats['nv_debug']['fail'] / nv_total * 100) if nv_total > 0 else 0, 2)
+                },
+                'igs_debug': {
+                    'pass': stats['igs_debug']['pass'],
+                    'fail': stats['igs_debug']['fail'],
+                    'total': igs_total,
+                    'pass_pct': round((stats['igs_debug']['pass'] / igs_total * 100) if igs_total > 0 else 0, 2),
+                    'fail_pct': round((stats['igs_debug']['fail'] / igs_total * 100) if igs_total > 0 else 0, 2)
+                }
+            })
+        
+        # Validate daily stats: Ensure Pass RIN <= Pass for consistency
+        # This ensures Pass RIN is always a subset of Pass
+        for date_str in daily_stats:
+            for debug_type in ['nv_debug', 'igs_debug']:
+                if daily_stats[date_str][debug_type]['pass_rin'] > daily_stats[date_str][debug_type]['pass']:
+                    # Cap Pass RIN at Pass value to ensure consistency
+                    daily_stats[date_str][debug_type]['pass_rin'] = daily_stats[date_str][debug_type]['pass']
+        
+        # Validate overall stats: Ensure Pass RIN <= Pass
+        if overall_stats['nv_debug']['pass_rin'] > overall_stats['nv_debug']['pass']:
+            overall_stats['nv_debug']['pass_rin'] = overall_stats['nv_debug']['pass']
+        if overall_stats['igs_debug']['pass_rin'] > overall_stats['igs_debug']['pass']:
+            overall_stats['igs_debug']['pass_rin'] = overall_stats['igs_debug']['pass']
+        
+        # Calculate overall percentages
+        nv_total = overall_stats['nv_debug']['total']
+        igs_total = overall_stats['igs_debug']['total']
+        
+        overall_stats['nv_debug']['pass_pct'] = round((overall_stats['nv_debug']['pass'] / nv_total * 100) if nv_total > 0 else 0, 2)
+        overall_stats['nv_debug']['fail_pct'] = round((overall_stats['nv_debug']['fail'] / nv_total * 100) if nv_total > 0 else 0, 2)
+        overall_stats['nv_debug']['pass_rin_pct'] = round((overall_stats['nv_debug']['pass_rin'] / nv_total * 100) if nv_total > 0 else 0, 2)
+        
+        overall_stats['igs_debug']['pass_pct'] = round((overall_stats['igs_debug']['pass'] / igs_total * 100) if igs_total > 0 else 0, 2)
+        overall_stats['igs_debug']['fail_pct'] = round((overall_stats['igs_debug']['fail'] / igs_total * 100) if igs_total > 0 else 0, 2)
+        overall_stats['igs_debug']['pass_rin_pct'] = round((overall_stats['igs_debug']['pass_rin'] / igs_total * 100) if igs_total > 0 else 0, 2)
+        
+        return jsonify({
+            'overall_stats': overall_stats,
+            'daily_stats': daily_list,
+            'station_stats': station_list,
+            'nv_debug_count': len(nv_debug_sns),
+            'igs_debug_count': len(igs_debug_sns),
+            'all_stations': sort_stations(list(station_stats.keys()))
+        })
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Debug comparison: {e}", flush=True)
+        print(traceback.format_exc(), flush=True)
         return jsonify({'error': str(e)}), 500
 
 # Context processor to inject show_daily_test_button=False for all templates
