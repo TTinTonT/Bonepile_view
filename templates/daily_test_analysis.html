@@ -266,7 +266,7 @@
             <label>Start Date: <input type="date" id="startDate"></label>
             <label>End Date: <input type="date" id="endDate"></label>
             <button onclick="loadAnalysis()">Load Analysis</button>
-            <button id="debugComparisonBtn" onclick="goToDebugComparison()" style="display: none; background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);">🔍 Debug Comparison (IGS vs NV)</button>
+            <button id="debugComparisonBtn" onclick="goToDebugComparison()" style="background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);">🔍 Debug Comparison (IGS vs NV)</button>
         </div>
         
         <div id="summarySection" style="display: none;">
@@ -427,9 +427,6 @@
                     updateWOStationHeatmap(data);
                     updatePartStationHeatmap(data);
                     updateOneTimePassTable(data);
-                    
-                    // Show debug comparison button
-                    document.getElementById('debugComparisonBtn').style.display = 'inline-block';
                 })
                 .catch(err => {
                     console.error('Error:', err);

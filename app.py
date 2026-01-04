@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import os
 from datetime import datetime, timedelta
+import pytz
 from werkzeug.utils import secure_filename
 import socket
 import re
@@ -173,6 +174,19 @@ def parse_test_filename(filename):
     
     return None
 
+# Function to get current date in California timezone
+def get_current_ca_date():
+    """Get current date in California timezone (PST/PDT)"""
+    try:
+        ca_tz = pytz.timezone('America/Los_Angeles')
+        ca_now = datetime.now(ca_tz)
+        return ca_now.date()
+    except:
+        # Fallback: assume UTC-8 (PST) if pytz not available
+        utc_now = datetime.utcnow()
+        ca_now = utc_now - timedelta(hours=8)  # PST = UTC-8
+        return ca_now.date()
+
 # Function to get cache file path for a date
 def get_cache_file_path(date):
     """Get cache file path for a specific date"""
@@ -180,9 +194,65 @@ def get_cache_file_path(date):
     cache_filename = f"daily_test_{date_str}.pkl"
     return os.path.join(app.config['CACHE_FOLDER'], cache_filename)
 
+# Function to cleanup old cache files (older than 90 days)
+def cleanup_old_cache():
+    """Delete cache files older than 90 days"""
+    try:
+        cache_dir = app.config['CACHE_FOLDER']
+        if not os.path.exists(cache_dir):
+            return
+        
+        current_ca_date = get_current_ca_date()
+        cutoff_date = current_ca_date - timedelta(days=90)
+        
+        deleted_count = 0
+        for filename in os.listdir(cache_dir):
+            if filename.startswith('daily_test_') and filename.endswith('.pkl'):
+                # Extract date from filename: daily_test_YYYY-MM-DD.pkl
+                try:
+                    date_str = filename.replace('daily_test_', '').replace('.pkl', '')
+                    file_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                    
+                    if file_date < cutoff_date:
+                        file_path = os.path.join(cache_dir, filename)
+                        os.remove(file_path)
+                        deleted_count += 1
+                except (ValueError, OSError):
+                    # Skip files with invalid format or deletion errors
+                    continue
+        
+        if deleted_count > 0:
+            print(f"[CACHE] Cleaned up {deleted_count} old cache file(s) (older than 90 days)", flush=True)
+    except Exception as e:
+        print(f"[CACHE] Error cleaning up old cache: {e}", flush=True)
+
+# Function to convert nested defaultdict and set to dict/list for pickle
+def convert_to_dict(obj):
+    """Recursively convert defaultdict and set to dict/list for pickle compatibility"""
+    if isinstance(obj, defaultdict):
+        return {k: convert_to_dict(v) for k, v in obj.items()}
+    elif isinstance(obj, dict):
+        return {k: convert_to_dict(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return type(obj)(convert_to_dict(item) for item in obj)
+    elif isinstance(obj, set):
+        return list(obj)  # Convert set to list for pickle
+    else:
+        return obj
+
 # Function to load cached data for a date
 def load_cached_data(date):
-    """Load cached data for a specific date if exists"""
+    """Load cached data for a specific date if exists (only for past dates, not today)"""
+    # Don't cache current date - always load fresh data for today
+    current_ca_date = get_current_ca_date()
+    if isinstance(date, datetime):
+        date_only = date.date()
+    else:
+        date_only = date
+    
+    if date_only >= current_ca_date:
+        return None  # Don't use cache for today or future dates
+    
     cache_file = get_cache_file_path(date)
     if os.path.exists(cache_file):
         try:
@@ -205,7 +275,17 @@ def load_cached_data(date):
 
 # Function to save data to cache for a date
 def save_to_cache(date, data):
-    """Save data to cache for a specific date"""
+    """Save data to cache for a specific date (only for past dates, not today)"""
+    # Don't cache current date - always load fresh data for today
+    current_ca_date = get_current_ca_date()
+    if isinstance(date, datetime):
+        date_only = date.date()
+    else:
+        date_only = date
+    
+    if date_only >= current_ca_date:
+        return  # Don't save cache for today or future dates
+    
     cache_file = get_cache_file_path(date)
     try:
         # Ensure cache directory exists
@@ -261,9 +341,12 @@ def load_daily_test_data(start_date, end_date):
         
         if cached_data:
             # Use cached data
-            cached_sns = cached_data.get('all_sns', set())
+            # Convert lists back to sets if needed (for compatibility with new cache format)
+            cached_sns_list = cached_data.get('all_sns', [])
+            cached_sns = set(cached_sns_list) if isinstance(cached_sns_list, list) else cached_sns_list
             cached_test_info = cached_data.get('sn_test_info', {})
-            cached_pass_rin = cached_data.get('sn_pass_rin', set())
+            cached_pass_rin_list = cached_data.get('sn_pass_rin', [])
+            cached_pass_rin = set(cached_pass_rin_list) if isinstance(cached_pass_rin_list, list) else cached_pass_rin_list
             cached_station_stats = cached_data.get('station_stats', {})
             cached_wo_station_stats = cached_data.get('wo_station_stats', {})
             cached_part_station_stats = cached_data.get('part_station_stats', {})
@@ -383,15 +466,16 @@ def load_daily_test_data(start_date, end_date):
             
             # Cache the data for this date (only if we processed files)
             if date_sns or date_test_info:
+                # Convert nested defaultdict and set to dict/list for pickle compatibility
                 cache_data = {
-                    'all_sns': date_sns,
-                    'sn_test_info': dict(date_test_info),
-                    'sn_pass_rin': date_pass_rin,
-                    'station_stats': dict(date_station_stats),
-                    'wo_station_stats': dict(date_wo_station_stats),
-                    'part_station_stats': dict(date_part_station_stats),
-                    'part_stats': dict(date_part_stats),
-                    'sn_part_numbers': {k: list(v) for k, v in date_sn_part_numbers.items()},
+                    'all_sns': convert_to_dict(date_sns),  # Convert set to list
+                    'sn_test_info': convert_to_dict(date_test_info),  # Convert nested defaultdict to dict
+                    'sn_pass_rin': convert_to_dict(date_pass_rin),  # Convert set to list
+                    'station_stats': convert_to_dict(date_station_stats),
+                    'wo_station_stats': convert_to_dict(date_wo_station_stats),  # Convert nested defaultdict
+                    'part_station_stats': convert_to_dict(date_part_station_stats),  # Convert nested defaultdict
+                    'part_stats': convert_to_dict(date_part_stats),
+                    'sn_part_numbers': convert_to_dict(date_sn_part_numbers),
                     'cached_date': current_date
                 }
                 save_to_cache(current_date, cache_data)
@@ -1954,6 +2038,9 @@ def inject_daily_test_button():
     return dict(show_daily_test_button=False)
 
 if __name__ == '__main__':
+    # Cleanup old cache files on startup (older than 90 days)
+    cleanup_old_cache()
+    
     local_ip = get_local_ip()
     port = 5001
     print("=" * 80)
