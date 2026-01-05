@@ -14,7 +14,7 @@
         
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #f5f5f5;
             min-height: 100vh;
             padding: 20px;
         }
@@ -24,34 +24,36 @@
             margin: 0 auto;
             background: white;
             padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
         }
         
         h1 {
-            color: #333;
+            color: #212121;
             margin-bottom: 10px;
-            font-size: 2.5em;
+            font-size: 2em;
+            font-weight: 600;
         }
         
         .back-link {
             display: inline-block;
             margin-bottom: 20px;
-            color: #667eea;
+            color: #1976d2;
             text-decoration: none;
-            font-weight: bold;
+            font-weight: 500;
         }
         
         .back-link:hover {
             text-decoration: underline;
+            color: #1565c0;
         }
         
         .filter-section {
-            background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f5 100%);
+            background: #fafafa;
             padding: 20px;
-            border-radius: 8px;
+            border-radius: 4px;
             margin-bottom: 30px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border: 1px solid #e0e0e0;
         }
         
         .filter-section h3 {
@@ -76,29 +78,28 @@
         
         .filter-section input[type="date"]:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #1976d2;
         }
         
         button {
-            padding: 12px 25px;
+            padding: 10px 20px;
             margin: 5px;
             cursor: pointer;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #1976d2;
             color: white;
             border: none;
-            border-radius: 6px;
-            font-size: 16px;
-            font-weight: bold;
-            transition: transform 0.2s, box-shadow 0.2s;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background-color 0.2s;
         }
         
         button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            background: #1565c0;
         }
         
         button:active {
-            transform: translateY(0);
+            background: #0d47a1;
         }
         
         #summarySection {
@@ -115,28 +116,34 @@
         .metric-box {
             flex: 1;
             min-width: 200px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: #ffffff;
+            color: #212121;
             padding: 20px;
-            border-radius: 10px;
+            border-radius: 4px;
             text-align: center;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            transition: transform 0.2s;
+            border: 1px solid #e0e0e0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+            transition: box-shadow 0.2s, border-color 0.2s;
         }
         
         .metric-box:hover {
-            transform: scale(1.05);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.16);
+            border-color: #bdbdbd;
         }
         
         .metric-box h3 {
-            font-size: 14px;
+            font-size: 13px;
             margin-bottom: 10px;
-            opacity: 0.9;
+            color: #616161;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         
         .metric-box .value {
             font-size: 32px;
-            font-weight: bold;
+            font-weight: 600;
+            color: #212121;
         }
         
         .chart-container {
@@ -160,7 +167,11 @@
         }
         
         .button-group button {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            background: #424242;
+        }
+        
+        .button-group button:hover {
+            background: #212121;
         }
         
         /* Modal styles */
@@ -220,9 +231,9 @@
         }
         
         th {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #424242;
             color: white;
-            font-weight: bold;
+            font-weight: 600;
             position: sticky;
             top: 0;
         }
@@ -232,13 +243,13 @@
         }
         
         .status-pass {
-            color: #4CAF50;
-            font-weight: bold;
+            color: #2e7d32;
+            font-weight: 600;
         }
         
         .status-fail {
-            color: #f44336;
-            font-weight: bold;
+            color: #c62828;
+            font-weight: 600;
         }
         
         .loading {
@@ -259,14 +270,14 @@
 <body>
     <div class="container">
         <a href="/" class="back-link">← Back to Dashboard</a>
-        <h1>📊 Daily Test Analysis</h1>
+        <h1>Daily Test Analysis</h1>
         
         <div class="filter-section">
             <h3>Date Range Filter</h3>
             <label>Start Date: <input type="date" id="startDate"></label>
             <label>End Date: <input type="date" id="endDate"></label>
             <button onclick="loadAnalysis()">Load Analysis</button>
-            <button id="debugComparisonBtn" onclick="goToDebugComparison()" style="background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);">🔍 Debug Comparison (IGS vs NV)</button>
+            <button id="debugComparisonBtn" onclick="goToDebugComparison()" style="background: #388e3c;">Debug Comparison (IGS vs NV)</button>
         </div>
         
         <div id="summarySection" style="display: none;">
@@ -277,13 +288,13 @@
                     <div class="metric-label" style="font-size: 14px; margin-top: 5px;" id="totalTraysPct">(100%)</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px; opacity: 0.8;">Click to view details</div>
                 </div>
-                <div class="metric-box" onclick="showSNDetails('pass')" style="background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); cursor: pointer;" title="Click to view pass SN details">
+                <div class="metric-box" onclick="showSNDetails('pass')" style="cursor: pointer; border-left: 6px solid #2e7d32;" title="Click to view pass SN details">
                     <h3>Total Pass</h3>
                     <div class="value" id="totalPass">0</div>
                     <div class="metric-label" style="font-size: 14px; margin-top: 5px;" id="totalPassPct">(0%)</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px; opacity: 0.8;">Click to view details</div>
                 </div>
-                <div class="metric-box" onclick="showSNDetails('fail')" style="background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%); cursor: pointer;" title="Click to view fail SN details">
+                <div class="metric-box" onclick="showSNDetails('fail')" style="cursor: pointer; border-left: 6px solid #c62828;" title="Click to view fail SN details">
                     <h3>Total Fail</h3>
                     <div class="value" id="totalFail">0</div>
                     <div class="metric-label" style="font-size: 14px; margin-top: 5px;" id="totalFailPct">(0%)</div>
@@ -855,10 +866,10 @@
             let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
             
             // Header
-            html += '<tr><th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; position: sticky; left: 0; z-index: 10;">Part Number</th>';
-            html += '<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; position: sticky; left: 100px; z-index: 10;">WO</th>';
+            html += '<tr><th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; position: sticky; left: 0; z-index: 10;">Part Number</th>';
+            html += '<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; position: sticky; left: 100px; z-index: 10;">WO</th>';
             stations.forEach(station => {
-                html += `<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; text-align: center; min-width: 80px;">${station}</th>`;
+                html += `<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; text-align: center; min-width: 80px;">${station}</th>`;
             });
             html += '</tr>';
             
@@ -873,10 +884,9 @@
                     html += `<td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">${row.wo}</td>`;
                     stations.forEach(station => {
                         const value = row[station] || 0;
-                        const color = getHeatmapColor(value);
                         // Get pass count for this WO at this station
                         const passCount = currentData.wo_statistics.find(w => w.wo === row.wo)?.stations[station]?.pass || 0;
-                        html += `<td style="padding: 8px; border: 1px solid #ddd; background: ${color}; text-align: center; font-weight: bold;" title="${row.wo} at ${station}: ${passCount} SNs passed">${value.toFixed(1)}%</td>`;
+                        html += `<td style="padding: 8px; border: 1px solid #ddd; background: #ffffff; text-align: center; font-weight: bold;" title="${row.wo} at ${station}: ${passCount} SNs passed">${value.toFixed(1)}%</td>`;
                     });
                     html += '</tr>';
                 });
@@ -901,9 +911,9 @@
             let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
             
             // Header
-            html += '<tr><th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; position: sticky; left: 0; z-index: 10;">Part Number</th>';
+            html += '<tr><th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; position: sticky; left: 0; z-index: 10;">Part Number</th>';
             stations.forEach(station => {
-                html += `<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; text-align: center; min-width: 80px;">${station}</th>`;
+                html += `<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; text-align: center; min-width: 80px;">${station}</th>`;
             });
             html += '</tr>';
             
@@ -913,10 +923,9 @@
                 html += `<td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">${row.part_number}</td>`;
                 stations.forEach(station => {
                     const value = row[station] || 0;
-                    const color = getHeatmapColor(value);
                     // Get pass count for this part number at this station
                     const passCount = currentData.part_statistics.find(p => p.part_number === row.part_number)?.stations[station]?.pass || 0;
-                    html += `<td style="padding: 8px; border: 1px solid #ddd; background: ${color}; text-align: center; font-weight: bold;" title="${row.part_number} at ${station}: ${passCount} SNs passed">${value.toFixed(1)}%</td>`;
+                    html += `<td style="padding: 8px; border: 1px solid #ddd; background: #ffffff; text-align: center; font-weight: bold;" title="${row.part_number} at ${station}: ${passCount} SNs passed">${value.toFixed(1)}%</td>`;
                 });
                 html += '</tr>';
             });
@@ -963,11 +972,11 @@
             let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
             
             // Header
-            html += '<tr><th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; position: sticky; left: 0; z-index: 10;">Part Number</th>';
-            html += '<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; position: sticky; left: 100px; z-index: 10;">WO</th>';
-            html += '<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; text-align: center; min-width: 120px;">1 Time Pass %</th>';
-            html += '<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; text-align: center; min-width: 100px;">1 Time Pass</th>';
-            html += '<th style="padding: 8px; background: #667eea; color: white; border: 1px solid #ddd; text-align: center; min-width: 100px;">Total</th>';
+            html += '<tr><th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; position: sticky; left: 0; z-index: 10;">Part Number</th>';
+            html += '<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; position: sticky; left: 100px; z-index: 10;">WO</th>';
+            html += '<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; text-align: center; min-width: 120px;">1 Time Pass %</th>';
+            html += '<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; text-align: center; min-width: 100px;">1 Time Pass</th>';
+            html += '<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; text-align: center; min-width: 100px;">Total</th>';
             html += '</tr>';
             
             // Rows grouped by part number
@@ -981,8 +990,7 @@
                     html += `<td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">${row.wo}</td>`;
                     
                     const value = row.one_time_pass_percentage || 0;
-                    const color = getHeatmapColor(value);
-                    html += `<td style="padding: 8px; border: 1px solid #ddd; background: ${color}; text-align: center; font-weight: bold;" title="${row.wo}: ${row.one_time_pass} out of ${row.total} SNs (${value.toFixed(1)}%)">${value.toFixed(1)}%</td>`;
+                    html += `<td style="padding: 8px; border: 1px solid #ddd; background: #ffffff; text-align: center; font-weight: bold;" title="${row.wo}: ${row.one_time_pass} out of ${row.total} SNs (${value.toFixed(1)}%)">${value.toFixed(1)}%</td>`;
                     html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${row.one_time_pass}</td>`;
                     html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${row.total}</td>`;
                     html += '</tr>';

@@ -14,7 +14,7 @@
         
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #f5f5f5;
             padding: 20px;
             min-height: 100vh;
         }
@@ -24,23 +24,25 @@
             margin: 0 auto;
             background: white;
             padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
         }
         
         h1 {
-            color: #2c3e50;
-            border-bottom: 3px solid #3498db;
+            color: #212121;
+            border-bottom: 2px solid #e0e0e0;
             padding-bottom: 10px;
             margin-bottom: 20px;
+            font-weight: 600;
         }
         
         h2 {
-            color: #34495e;
+            color: #424242;
             margin-top: 30px;
-            border-left: 4px solid #3498db;
+            border-left: 6px solid #1976d2;
             padding-left: 10px;
             margin-bottom: 20px;
+            font-weight: 600;
         }
         
         .metric-grid {
@@ -51,41 +53,45 @@
         }
         
         .metric-box {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: #ffffff;
+            color: #212121;
             padding: 20px;
-            border-radius: 8px;
+            border-radius: 4px;
             text-align: center;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            border: 1px solid #e0e0e0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+            transition: box-shadow 0.2s, border-color 0.2s;
         }
         
         .metric-box:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.16);
+            border-color: #bdbdbd;
         }
         
         .metric-box.success {
-            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            border-left: 6px solid #2e7d32;
         }
         
         .metric-box.warning {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            border-left: 6px solid #f57c00;
         }
         
         .metric-box.info {
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            border-left: 6px solid #1976d2;
         }
         
         .metric-value {
             font-size: 32px;
-            font-weight: bold;
+            font-weight: 600;
             margin: 10px 0;
+            color: #212121;
         }
         
         .metric-label {
-            font-size: 14px;
-            opacity: 0.9;
+            font-size: 13px;
+            color: #757575;
+            font-weight: 500;
         }
         
         table {
@@ -95,10 +101,11 @@
         }
         
         th {
-            background: #3498db;
+            background: #424242;
             color: white;
             padding: 12px;
             text-align: left;
+            font-weight: 600;
         }
         
         td {
@@ -111,18 +118,19 @@
         }
         
         .summary {
-            background: #e8f5e9;
+            background: #f5f5f5;
             padding: 20px;
-            border-radius: 5px;
+            border-radius: 4px;
             margin: 20px 0;
+            border: 1px solid #e0e0e0;
         }
         
         .note-box {
-            background: #fff3cd;
+            background: #fff3e0;
             padding: 15px;
-            border-radius: 5px;
+            border-radius: 4px;
             margin: 20px 0;
-            border-left: 4px solid #ffc107;
+            border-left: 6px solid #f57c00;
         }
         
         .modal {
@@ -204,9 +212,9 @@
                 <p><strong>Server IP:</strong> <span style="font-family: monospace; background: #f0f0f0; padding: 2px 8px; border-radius: 3px;">{{ ip }}</span></p>
             </div>
             <div>
-                <a href="/upload" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; display: inline-block; margin-right: 10px;">📤 Upload New File</a>
+                <a href="/upload" style="background: #1976d2; color: white; padding: 10px 20px; border-radius: 4px; text-decoration: none; display: inline-block; margin-right: 10px; font-weight: 500;">Upload New File</a>
                 {% if show_daily_test_button %}
-                <a href="/daily-test-analysis" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; display: inline-block;">📊 Daily Test Analysis</a>
+                <a href="/daily-test-analysis" style="background: #424242; color: white; padding: 10px 20px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 500;">Daily Test Analysis</a>
                 {% else %}
                 <!-- Daily Test Analysis temporarily disabled - running on port 5005 for development -->
                 <!-- <a href="/daily-test-analysis" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; display: inline-block;">📊 Daily Test Analysis</a> -->
@@ -278,8 +286,8 @@
                 </div>
             </div>
             <div style="display: flex; gap: 10px;">
-                <button onclick="applyFilters()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">Apply Filters</button>
-                <button onclick="showAllDispositions()" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">🔍 View All Dispositions (Debug)</button>
+                <button onclick="applyFilters()" style="background: #1976d2; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: 500;">Apply Filters</button>
+                <button onclick="showAllDispositions()" style="background: #424242; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: 500;">View All Dispositions (Debug)</button>
             </div>
         </div>
         
