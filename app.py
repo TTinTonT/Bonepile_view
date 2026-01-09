@@ -93,6 +93,44 @@ def is_waiting_for_material(text):
     material_keywords = ['waiting for material', 'waiting for cx9', 'waiting for strata', 'waiting for new material', 'waiting for new strata']
     return any(keyword in text_str for keyword in material_keywords)
 
+# Function to normalize SN format
+def normalize_sn(sn):
+    """Normalize SN format to ensure consistent matching"""
+    if pd.isna(sn) or sn == '':
+        return ''
+    
+    # Handle different input types
+    if isinstance(sn, (int, float)):
+        # If it's a number, convert to int first (removes .0), then to string
+        # This preserves the full number without scientific notation
+        sn_str = str(int(sn))
+    else:
+        # Convert to string and strip whitespace
+        sn_str = str(sn).strip()
+    
+    # Remove .0 suffix if exists (from float conversion)
+    if sn_str.endswith('.0'):
+        sn_str = sn_str[:-2]
+    
+    # Extract only digits (remove any non-digit characters)
+    sn_digits = ''.join(filter(str.isdigit, sn_str))
+    
+    # Validate SN format: should start with 18 and be 13 digits
+    if sn_digits.startswith('18') and len(sn_digits) == 13:
+        return sn_digits
+    
+    # If not valid format but has digits, try to pad or fix
+    # Sometimes Excel might read SN as number and lose leading zeros
+    if sn_digits.startswith('18') and len(sn_digits) < 13:
+        # Pad with zeros if it starts with 18 but is shorter
+        # This shouldn't happen for valid SNs, but handle it anyway
+        sn_digits = sn_digits.ljust(13, '0')
+        if len(sn_digits) == 13:
+            return sn_digits
+    
+    # If still not valid, return the digit-only string anyway (might be a different format)
+    return sn_digits if sn_digits else sn_str
+
 # Function to normalize WO format
 def normalize_wo(wo_str):
     """Normalize WO format: '000007016682-1' -> '7016682'"""
@@ -360,6 +398,14 @@ def load_daily_test_data(start_date, end_date):
             for sn, test_list in cached_test_info.items():
                 if sn not in sn_test_info:
                     sn_test_info[sn] = []
+                # Update WO for cached entries using current mapping
+                for test_entry in test_list:
+                    # Re-lookup WO from current mapping to ensure it's up-to-date
+                    sn_normalized = normalize_sn(sn)
+                    wo_from_mapping = sn_wo_mapping.get(sn_normalized, 'No WO')
+                    wo_from_mapping = normalize_wo(wo_from_mapping) if wo_from_mapping != 'No WO' else wo_from_mapping
+                    # Update WO in test_entry
+                    test_entry['wo'] = wo_from_mapping
                 sn_test_info[sn].extend(test_list)
             
             for station, stats in cached_station_stats.items():
@@ -413,14 +459,17 @@ def load_daily_test_data(start_date, end_date):
                         
                         if parsed:
                             sn, status, station, part_number = parsed
-                            date_sns.add(sn)
-                            all_sns.add(sn)
-                            wo = sn_wo_mapping.get(sn, 'No WO')
+                            # Normalize SN to ensure matching with mapping
+                            sn_normalized = normalize_sn(sn)
+                            date_sns.add(sn_normalized)
+                            all_sns.add(sn_normalized)
+                            wo = sn_wo_mapping.get(sn_normalized, 'No WO')
+                            
                             wo = normalize_wo(wo) if wo != 'No WO' else wo
                             
-                            # Track part number for this SN
-                            date_sn_part_numbers[sn].add(part_number)
-                            sn_part_numbers[sn].add(part_number)
+                            # Track part number for this SN (use normalized SN for consistency)
+                            date_sn_part_numbers[sn_normalized].add(part_number)
+                            sn_part_numbers[sn_normalized].add(part_number)
                             
                             test_entry = {
                                 'date': current_date,
@@ -431,10 +480,10 @@ def load_daily_test_data(start_date, end_date):
                                 'part_number': part_number
                             }
                             
-                            date_test_info[sn].append(test_entry)
-                            if sn not in sn_test_info:
-                                sn_test_info[sn] = []
-                            sn_test_info[sn].append(test_entry)
+                            date_test_info[sn_normalized].append(test_entry)
+                            if sn_normalized not in sn_test_info:
+                                sn_test_info[sn_normalized] = []
+                            sn_test_info[sn_normalized].append(test_entry)
                             
                             if status == 'F':  # Fail
                                 station_stats[station]['fail'] += 1
@@ -458,8 +507,12 @@ def load_daily_test_data(start_date, end_date):
                                 date_part_stats[part_number]['pass'] += 1
                                 
                                 if station == 'RIN':
-                                    date_pass_rin.add(sn)
-                                    sn_pass_rin.add(sn)
+                                    date_pass_rin.add(sn_normalized)
+                                    sn_pass_rin.add(sn_normalized)
+                                # Special case: WO 3300001 passes if FCT passes
+                                elif station == 'FCT' and wo == '3300001':
+                                    date_pass_rin.add(sn_normalized)
+                                    sn_pass_rin.add(sn_normalized)
             except (OSError, PermissionError):
                 # Network path not accessible, skip this date
                 pass
@@ -607,18 +660,58 @@ def load_fa_work_log():
         return sn_wo_mapping
     
     try:
-        df = pd.read_excel(fa_work_log_path, sheet_name='Log')
-        # Column B = SN (index 1), Column C = WO (index 2)
-        if len(df.columns) >= 3:
-            for idx, row in df.iterrows():
-                sn = row.iloc[1]  # Column B
-                wo = row.iloc[2]  # Column C
-                if pd.notna(sn) and pd.notna(wo):
-                    sn_str = str(sn).strip().replace('.0', '')
-                    wo_str = normalize_wo(wo)  # Normalize WO format
-                    if sn_str:
-                        sn_wo_mapping[sn_str] = wo_str
-    except Exception:
+        # Read Excel file directly using openpyxl to preserve SN precision
+        # This is critical for large numbers like 1830126000016 which can lose precision if read as float
+        from openpyxl import load_workbook
+        
+        # Load workbook - read as string to preserve exact format
+        wb = load_workbook(fa_work_log_path, read_only=True, data_only=True)
+        ws = wb['Log']
+        
+        loaded_count = 0
+        skipped_count = 0
+        
+        # Read rows starting from row 2 (skip header if exists)
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            # Column B = SN (index 1), Column C = WO (index 2)
+            if len(row) >= 3:
+                sn_value = row[1]  # Column B
+                wo_value = row[2]  # Column C
+                
+                if sn_value is not None and wo_value is not None:
+                    # Convert SN to string - handle both numeric and string types
+                    # For large integers stored as float in Excel, preserve precision
+                    if isinstance(sn_value, float):
+                        # Check if it's a whole number (integer stored as float)
+                        if sn_value.is_integer():
+                            # Convert to int first to avoid scientific notation, then to string
+                            sn_original = str(int(sn_value))
+                        else:
+                            # Should not happen for SNs, but handle it
+                            sn_original = f"{sn_value:.0f}"
+                    elif isinstance(sn_value, int):
+                        sn_original = str(sn_value)
+                    else:
+                        sn_original = str(sn_value).strip() if sn_value else ''
+                    
+                    wo_original = str(wo_value).strip() if wo_value else ''
+                    
+                    if sn_original and sn_original.lower() != 'nan' and wo_original and wo_original.lower() != 'nan':
+                        sn_str = normalize_sn(sn_original)  # Normalize SN format
+                        wo_str = normalize_wo(wo_original)  # Normalize WO format
+                        
+                        if sn_str and len(sn_str) == 13 and sn_str.startswith('18'):
+                            sn_wo_mapping[sn_str] = wo_str
+                            loaded_count += 1
+                        else:
+                            skipped_count += 1
+        
+        wb.close()
+    except Exception as e:
+        # Log error for debugging
+        import traceback
+        print(f"Error loading FA Work Log: {e}")
+        traceback.print_exc()
         pass
     
     return sn_wo_mapping
@@ -1450,8 +1543,13 @@ def get_daily_test_analysis():
         for sn, test_list in test_data['sn_test_info'].items():
             wo = test_list[0]['wo'] if test_list else 'No WO'
             
-            # Determine if SN passed (must pass RIN)
+            # Determine if SN passed (must pass RIN, or FCT for WO 3300001)
             is_pass = sn in test_data['sn_pass_rin']
+            # Special case: Check if WO 3300001 passed FCT
+            if not is_pass and wo == '3300001' and test_list:
+                has_fct_pass = any(test['station'] == 'FCT' and test['status'] == 'P' for test in test_list)
+                if has_fct_pass:
+                    is_pass = True
             
             # Check if SN is 1 time pass:
             # 1. All tests must be pass (no fail at any station)
@@ -1695,6 +1793,11 @@ def get_sn_details():
         for sn, test_list in test_data['sn_test_info'].items():
             wo_sn = test_list[0]['wo'] if test_list else 'No WO'
             is_pass = sn in test_data['sn_pass_rin']
+            # Special case: Check if WO 3300001 passed FCT
+            if not is_pass and wo_sn == '3300001' and test_list:
+                has_fct_pass = any(test['station'] == 'FCT' and test['status'] == 'P' for test in test_list)
+                if has_fct_pass:
+                    is_pass = True
             part_numbers_for_sn = test_data['sn_part_numbers'].get(sn, [])
             
             # Apply filters
