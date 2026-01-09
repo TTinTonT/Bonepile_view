@@ -1614,9 +1614,12 @@ def get_daily_test_analysis():
         
         # Helper function to calculate station pass percentages
         def calculate_station_pass_percentages(stations_dict):
-            """Calculate pass percentages for each station"""
+            """Calculate pass percentages for each station, sorted by station order"""
             station_pcts = {}
-            for station, st_stats in stations_dict.items():
+            # Sort stations according to custom order: FLA > FLB > AST > FTS > FCT > RIN
+            sorted_stations = sort_stations(list(stations_dict.keys()))
+            for station in sorted_stations:
+                st_stats = stations_dict[station]
                 st_total = st_stats['pass'] + st_stats['fail']
                 st_pass_pct = (st_stats['pass'] / st_total * 100) if st_total > 0 else 0
                 station_pcts[station] = round(st_pass_pct, 2)
@@ -1651,8 +1654,8 @@ def get_daily_test_analysis():
                 'station_pass_percentages': station_pcts,
                 'part_number': wo_part_mapping.get(wo, 'Unknown')
             })
-        # Sort by part number first, then by WO
-        wo_list.sort(key=lambda x: (x['part_number'], x['wo']))
+        # Sort by WO (ascending)
+        wo_list.sort(key=lambda x: x['wo'])
         
         # Convert part number statistics to list with percentages
         part_list = []
@@ -1752,7 +1755,7 @@ def get_daily_test_analysis():
                 'one_time_pass': stats['one_time_pass'],
                 'one_time_pass_percentage': round(one_time_pass_pct, 2)
             })
-        # Sort by part number first, then by WO
+        # Sort by part number first, then by WO (both ascending)
         one_time_pass_list.sort(key=lambda x: (x['part_number'], x['wo']))
         
         return jsonify({
@@ -1811,7 +1814,7 @@ def get_sn_details():
                 if status_filter.lower() == 'fail' and is_pass:
                     continue
             
-            # Get stations for this SN
+            # Get stations for this SN (sorted by station order)
             stations = {}
             for test in test_list:
                 st = test['station']
@@ -1822,19 +1825,26 @@ def get_sn_details():
                 else:
                     stations[st]['fail'] += 1
             
+            # Sort stations dict keys according to custom order: FLA > FLB > AST > FTS > FCT > RIN
+            sorted_station_keys = sort_stations(list(stations.keys()))
+            stations_sorted = {k: stations[k] for k in sorted_station_keys}
+            
             # Filter by station if specified
             if station and station != 'ALL':
-                if station not in stations:
+                if station not in stations_sorted:
                     continue
             
             result.append({
                 'sn': sn,
                 'wo': wo_sn,
-                'part_numbers': part_numbers_for_sn,
+                'part_numbers': sorted(part_numbers_for_sn) if part_numbers_for_sn else [],  # Sort part numbers
                 'status': 'PASS' if is_pass else 'FAIL',
-                'stations': stations,
+                'stations': stations_sorted,
                 'test_count': len(test_list)
             })
+        
+        # Sort by SN (ascending)
+        result.sort(key=lambda x: x['sn'])
         
         return jsonify({
             'data': result,
@@ -2006,21 +2016,20 @@ def get_debug_comparison():
                             sn_has_igs_pass_rin = True
             
             # Update overall stats (count unique SNs)
+            # For summary boxes: Pass = Pass RIN (only count as pass if passed at RIN)
             if sn_has_igs_tests:
                 overall_stats['igs_debug']['total'] += 1
-                if sn_has_igs_pass:
+                if sn_has_igs_pass_rin:  # Only count as pass if passed RIN
                     overall_stats['igs_debug']['pass'] += 1
-                    if sn_has_igs_pass_rin:
-                        overall_stats['igs_debug']['pass_rin'] += 1
+                    overall_stats['igs_debug']['pass_rin'] += 1
                 else:
                     overall_stats['igs_debug']['fail'] += 1
             
             if sn_has_nv_tests:
                 overall_stats['nv_debug']['total'] += 1
-                if sn_has_nv_pass:
+                if sn_has_nv_pass_rin:  # Only count as pass if passed RIN
                     overall_stats['nv_debug']['pass'] += 1
-                    if sn_has_nv_pass_rin:
-                        overall_stats['nv_debug']['pass_rin'] += 1
+                    overall_stats['nv_debug']['pass_rin'] += 1
                 else:
                     overall_stats['nv_debug']['fail'] += 1
         
@@ -2102,21 +2111,20 @@ def get_debug_comparison():
                     # Cap Pass RIN at Pass value to ensure consistency
                     daily_stats[date_str][debug_type]['pass_rin'] = daily_stats[date_str][debug_type]['pass']
         
-        # Validate overall stats: Ensure Pass RIN <= Pass
-        if overall_stats['nv_debug']['pass_rin'] > overall_stats['nv_debug']['pass']:
-            overall_stats['nv_debug']['pass_rin'] = overall_stats['nv_debug']['pass']
-        if overall_stats['igs_debug']['pass_rin'] > overall_stats['igs_debug']['pass']:
-            overall_stats['igs_debug']['pass_rin'] = overall_stats['igs_debug']['pass']
-        
+        # Pass = Pass RIN for summary boxes (they are the same now)
         # Calculate overall percentages
         nv_total = overall_stats['nv_debug']['total']
         igs_total = overall_stats['igs_debug']['total']
         
-        overall_stats['nv_debug']['pass_pct'] = round((overall_stats['nv_debug']['pass'] / nv_total * 100) if nv_total > 0 else 0, 2)
+        # Set pass = pass_rin for summary boxes consistency
+        overall_stats['nv_debug']['pass'] = overall_stats['nv_debug']['pass_rin']
+        overall_stats['igs_debug']['pass'] = overall_stats['igs_debug']['pass_rin']
+        
+        overall_stats['nv_debug']['pass_pct'] = round((overall_stats['nv_debug']['pass_rin'] / nv_total * 100) if nv_total > 0 else 0, 2)
         overall_stats['nv_debug']['fail_pct'] = round((overall_stats['nv_debug']['fail'] / nv_total * 100) if nv_total > 0 else 0, 2)
         overall_stats['nv_debug']['pass_rin_pct'] = round((overall_stats['nv_debug']['pass_rin'] / nv_total * 100) if nv_total > 0 else 0, 2)
         
-        overall_stats['igs_debug']['pass_pct'] = round((overall_stats['igs_debug']['pass'] / igs_total * 100) if igs_total > 0 else 0, 2)
+        overall_stats['igs_debug']['pass_pct'] = round((overall_stats['igs_debug']['pass_rin'] / igs_total * 100) if igs_total > 0 else 0, 2)
         overall_stats['igs_debug']['fail_pct'] = round((overall_stats['igs_debug']['fail'] / igs_total * 100) if igs_total > 0 else 0, 2)
         overall_stats['igs_debug']['pass_rin_pct'] = round((overall_stats['igs_debug']['pass_rin'] / igs_total * 100) if igs_total > 0 else 0, 2)
         
@@ -2131,6 +2139,99 @@ def get_debug_comparison():
     except Exception as e:
         import traceback
         print(f"[ERROR] Debug comparison: {e}", flush=True)
+        print(traceback.format_exc(), flush=True)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/debug-comparison-sn-list')
+def get_debug_comparison_sn_list():
+    """Get SN list for debug comparison by debug type and status"""
+    try:
+        start_date_str = request.args.get('start_date', '')
+        end_date_str = request.args.get('end_date', '')
+        debug_type = request.args.get('debug_type', '')  # 'nv_debug' or 'igs_debug'
+        status = request.args.get('status', '')  # 'pass', 'fail', or 'all'
+        
+        if not start_date_str or not end_date_str or not debug_type:
+            return jsonify({'error': 'Start date, end date, and debug_type are required'}), 400
+        
+        if debug_type not in ['nv_debug', 'igs_debug']:
+            return jsonify({'error': 'debug_type must be nv_debug or igs_debug'}), 400
+        
+        if status not in ['pass', 'fail', 'all']:
+            return jsonify({'error': 'status must be pass, fail, or all'}), 400
+        
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+        
+        if start_date > end_date:
+            return jsonify({'error': 'Start date must be before end date'}), 400
+        
+        # Load Bonepile list with fail_time mapping
+        bonepile_fail_time = load_bonepile_list()
+        
+        # Load daily test data
+        test_data = load_daily_test_data(start_date, end_date)
+        
+        # Get SNs that passed RIN
+        sn_pass_rin = test_data.get('sn_pass_rin', set())
+        
+        result_sns = []
+        
+        # Process each SN
+        for sn, test_list in test_data['sn_test_info'].items():
+            fail_time = bonepile_fail_time.get(sn)
+            
+            # Determine if this SN belongs to the requested debug type
+            sn_belongs_to_debug_type = False
+            sn_has_pass_rin = sn in sn_pass_rin
+            
+            # Check all test entries to determine SN's debug type
+            for test_entry in test_list:
+                test_date = test_entry.get('date', start_date)
+                if isinstance(test_date, str):
+                    test_date = datetime.strptime(test_date, '%Y-%m-%d')
+                elif isinstance(test_date, pd.Timestamp):
+                    test_date = test_date.to_pydatetime()
+                test_date = test_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                
+                if fail_time:
+                    fail_time_date = fail_time.replace(hour=0, minute=0, second=0, microsecond=0)
+                    if test_date < fail_time_date:
+                        if debug_type == 'igs_debug':
+                            sn_belongs_to_debug_type = True
+                            break
+                    else:
+                        if debug_type == 'nv_debug':
+                            sn_belongs_to_debug_type = True
+                            break
+                else:
+                    # Not in Bonepile - only IGS if fail or pass at RIN
+                    if debug_type == 'igs_debug':
+                        if test_entry['status'] == 'F' or (test_entry['status'] == 'P' and test_entry['station'] == 'RIN'):
+                            sn_belongs_to_debug_type = True
+                            break
+            
+            if not sn_belongs_to_debug_type:
+                continue
+            
+            # Filter by status
+            if status == 'pass' and not sn_has_pass_rin:
+                continue
+            if status == 'fail' and sn_has_pass_rin:
+                continue
+            
+            result_sns.append(sn)
+        
+        # Sort SNs
+        result_sns.sort()
+        
+        return jsonify({
+            'count': len(result_sns),
+            'sns': result_sns
+        })
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Debug comparison SN list: {e}", flush=True)
         print(traceback.format_exc(), flush=True)
         return jsonify({'error': str(e)}), 500
 

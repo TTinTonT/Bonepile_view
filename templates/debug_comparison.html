@@ -247,6 +247,46 @@
             <button onclick="loadComparison()" title="Load and display debug comparison statistics for the selected date range">Load Comparison</button>
         </div>
         
+        <!-- Info Panel: Understanding Metrics -->
+        <div class="info-panel" style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; margin-bottom: 20px;">
+            <div onclick="toggleInfoPanel()" style="padding: 12px 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #e9ecef; border-radius: 5px 5px 0 0;">
+                <h3 style="margin: 0; color: #495057;">
+                    <span style="margin-right: 8px;">ℹ️</span>
+                    Understanding Debug Categories & Metrics
+                </h3>
+                <span id="infoPanelToggle" style="font-size: 18px; transition: transform 0.3s;">▼</span>
+            </div>
+            <div id="infoPanelContent" style="padding: 15px; display: block;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <h4 style="color: #1976d2; margin-bottom: 8px;">
+                            🔵 NV Debug (In Bonepile)
+                        </h4>
+                        <ul style="margin: 0; padding-left: 20px; color: #495057; line-height: 1.6;">
+                            <li>SNs that exist in Bonepile list</li>
+                            <li>Debugged by NV team</li>
+                            <li>Shows: <strong>SN Count</strong> - Unique Serial Numbers</li>
+                            <li>Pass = Passed at RIN station</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 style="color: #f57c00; margin-bottom: 8px;">
+                            🟠 IGS Debug (Not in Bonepile)
+                        </h4>
+                        <ul style="margin: 0; padding-left: 20px; color: #495057; line-height: 1.6;">
+                            <li>SNs NOT in Bonepile list AND have at least 1 fail</li>
+                            <li>Debugged by IGS team</li>
+                            <li>Shows: <strong>SN Count</strong> - Unique Serial Numbers</li>
+                            <li>Pass = Passed at RIN station</li>
+                        </ul>
+                    </div>
+                </div>
+                <div style="margin-top: 15px; padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 3px;">
+                    <strong>💡 Note:</strong> Station statistics show <strong>Test Count</strong> (includes retests), while summary boxes show <strong>SN Count</strong> (unique trays).
+                </div>
+            </div>
+        </div>
+        
         <div id="loadingSection" class="loading" style="display: none;">
             Loading comparison data...
         </div>
@@ -256,38 +296,72 @@
         <div id="contentSection" style="display: none;">
             <!-- Overall Summary -->
             <div class="summary-metrics">
-                <div class="metric-box nv-debug" title="NV Debug: SNs that exist in Bonepile list (NV_IGS_VR144_Bonepile.xlsx). These are debugged by NV team.">
-                    <h3>NV Debug (In Bonepile)</h3>
+                <div class="metric-box nv-debug" onclick="showDebugSNList('nv_debug', 'all')" style="cursor: pointer;" title="NV Debug: SNs that exist in Bonepile list (NV_IGS_VR144_Bonepile.xlsx). These are debugged by NV team. Click to view SN list.">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 5px;">
+                        <h3>NV Debug (In Bonepile)</h3>
+                        <span class="metric-badge" style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 10px; font-weight: 600; background: #e3f2fd; color: #1976d2;">
+                            📦 SN COUNT
+                        </span>
+                    </div>
                     <div class="value" id="nvTotal" title="Total number of unique SNs that are in Bonepile list">0</div>
                     <div class="metric-label">Total SNs</div>
                     <div class="metric-label" style="margin-top: 10px;">
-                        Pass: <span id="nvPass" title="Number of NV Debug SNs that passed at RIN station (final pass)">0</span> (<span id="nvPassPct" title="Percentage of NV Debug SNs that passed: (Pass / Total) × 100%">0%</span>)<br>
-                        Fail: <span id="nvFail" title="Number of NV Debug SNs that failed (did not pass at RIN station)">0</span> (<span id="nvFailPct" title="Percentage of NV Debug SNs that failed: (Fail / Total) × 100%">0%</span>)<br>
-                        Pass RIN: <span id="nvPassRin" title="Number of NV Debug SNs that passed at RIN station (same as Pass count)">0</span> (<span id="nvPassRinPct" title="Percentage of NV Debug SNs that passed RIN: (Pass RIN / Total) × 100%">0%</span>)
+                        Pass: <span id="nvPass" onclick="event.stopPropagation(); showDebugSNList('nv_debug', 'pass')" style="cursor: pointer; text-decoration: underline;" title="Click to view Pass SNs">0</span> (<span id="nvPassPct" title="Percentage of NV Debug SNs that passed: (Pass / Total) × 100%">0%</span>)<br>
+                        Fail: <span id="nvFail" onclick="event.stopPropagation(); showDebugSNList('nv_debug', 'fail')" style="cursor: pointer; text-decoration: underline;" title="Click to view Fail SNs">0</span> (<span id="nvFailPct" title="Percentage of NV Debug SNs that failed: (Fail / Total) × 100%">0%</span>)
                     </div>
+                    <div class="metric-label" style="font-size: 11px; margin-top: 5px; opacity: 0.8;">Click to view all SNs</div>
                 </div>
                 
-                <div class="metric-box igs-debug" title="IGS Debug: SNs that do NOT exist in Bonepile list AND have at least 1 fail. These are debugged by IGS team.">
-                    <h3>IGS Debug (Not in Bonepile)</h3>
+                <div class="metric-box igs-debug" onclick="showDebugSNList('igs_debug', 'all')" style="cursor: pointer;" title="IGS Debug: SNs that do NOT exist in Bonepile list AND have at least 1 fail. These are debugged by IGS team. Click to view SN list.">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 5px;">
+                        <h3>IGS Debug (Not in Bonepile)</h3>
+                        <span class="metric-badge" style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 10px; font-weight: 600; background: #fff3e0; color: #f57c00;">
+                            📦 SN COUNT
+                        </span>
+                    </div>
                     <div class="value" id="igsTotal" title="Total number of unique SNs that are NOT in Bonepile list AND have at least 1 fail">0</div>
                     <div class="metric-label">Total SNs</div>
                     <div class="metric-label" style="margin-top: 10px;">
-                        Pass: <span id="igsPass" title="Number of IGS Debug SNs that passed at RIN station (final pass)">0</span> (<span id="igsPassPct" title="Percentage of IGS Debug SNs that passed: (Pass / Total) × 100%">0%</span>)<br>
-                        Fail: <span id="igsFail" title="Number of IGS Debug SNs that failed (did not pass at RIN station)">0</span> (<span id="igsFailPct" title="Percentage of IGS Debug SNs that failed: (Fail / Total) × 100%">0%</span>)<br>
-                        Pass RIN: <span id="igsPassRin" title="Number of IGS Debug SNs that passed at RIN station (same as Pass count)">0</span> (<span id="igsPassRinPct" title="Percentage of IGS Debug SNs that passed RIN: (Pass RIN / Total) × 100%">0%</span>)
+                        Pass: <span id="igsPass" onclick="event.stopPropagation(); showDebugSNList('igs_debug', 'pass')" style="cursor: pointer; text-decoration: underline;" title="Click to view Pass SNs">0</span> (<span id="igsPassPct" title="Percentage of IGS Debug SNs that passed: (Pass / Total) × 100%">0%</span>)<br>
+                        Fail: <span id="igsFail" onclick="event.stopPropagation(); showDebugSNList('igs_debug', 'fail')" style="cursor: pointer; text-decoration: underline;" title="Click to view Fail SNs">0</span> (<span id="igsFailPct" title="Percentage of IGS Debug SNs that failed: (Fail / Total) × 100%">0%</span>)
                     </div>
+                    <div class="metric-label" style="font-size: 11px; margin-top: 5px; opacity: 0.8;">Click to view all SNs</div>
                 </div>
             </div>
             
             <!-- Daily Statistics Chart -->
             <div class="chart-container">
-                <h2 title="Bar chart showing daily Pass/Fail counts for NV Debug and IGS Debug SNs. Each bar represents one day in the selected date range.">Daily Pass/Fail Comparison</h2>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                    <div style="flex: 1;">
+                        <h2 style="margin: 0 0 5px 0;" title="Bar chart showing daily Pass/Fail counts for NV Debug and IGS Debug SNs. Each bar represents one day in the selected date range.">Daily Pass/Fail Comparison</h2>
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <span class="metric-badge" style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; background: #e3f2fd; color: #1976d2;">
+                                📦 SN Count Mode
+                            </span>
+                            <span style="font-size: 12px; color: #666;">
+                                (Each bar = unique Serial Numbers per day)
+                            </span>
+                        </div>
+                    </div>
+                </div>
                 <canvas id="dailyChart"></canvas>
             </div>
             
             <!-- Station Statistics Chart -->
             <div class="chart-container">
-                <h2 title="Bar chart comparing Pass percentage (%) between NV Debug and IGS Debug at each station (FLA, FLB, AST, FTS, FCT, RIN).">Station Pass/Fail Comparison</h2>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                    <div style="flex: 1;">
+                        <h2 style="margin: 0 0 5px 0;" title="Bar chart comparing Pass percentage (%) between NV Debug and IGS Debug at each station (FLA, FLB, AST, FTS, FCT, RIN).">Station Pass/Fail Comparison</h2>
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <span class="metric-badge" style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; background: #fff3e0; color: #f57c00;">
+                                📊 Test Count Mode
+                            </span>
+                            <span style="font-size: 12px; color: #666;">
+                                (Each bar = total test entries, includes retests)
+                            </span>
+                        </div>
+                    </div>
+                </div>
                 <canvas id="stationChart"></canvas>
             </div>
             
@@ -337,9 +411,33 @@
         </div>
     </div>
     
+    <!-- Modal for SN Details -->
+    <div id="snModal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
+        <div class="modal-content" style="background: white; margin: 3% auto; padding: 30px; width: 90%; max-width: 1000px; border-radius: 12px; max-height: 85vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
+            <span class="close" onclick="closeSNModal()" style="float: right; font-size: 32px; font-weight: bold; cursor: pointer; color: #999; transition: color 0.2s;">&times;</span>
+            <h2 id="snModalTitle">Serial Number Details</h2>
+            <div id="snModalContent"></div>
+        </div>
+    </div>
+    
     <script>
         let dailyChart = null;
         let stationChart = null;
+        
+        // Toggle info panel
+        function toggleInfoPanel() {
+            const content = document.getElementById('infoPanelContent');
+            const toggle = document.getElementById('infoPanelToggle');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                toggle.textContent = '▼';
+                toggle.style.transform = 'rotate(0deg)';
+            } else {
+                content.style.display = 'none';
+                toggle.textContent = '▶';
+                toggle.style.transform = 'rotate(-90deg)';
+            }
+        }
         
         // Set default dates (today and 7 days ago)
         window.onload = function() {
@@ -399,21 +497,82 @@
         function updateSummary(stats) {
             // NV Debug
             document.getElementById('nvTotal').textContent = stats.nv_debug.total;
-            document.getElementById('nvPass').textContent = stats.nv_debug.pass;
-            document.getElementById('nvPassPct').textContent = stats.nv_debug.pass_pct + '%';
+            // Pass = Pass RIN for summary boxes
+            document.getElementById('nvPass').textContent = stats.nv_debug.pass_rin;
+            document.getElementById('nvPassPct').textContent = stats.nv_debug.pass_rin_pct + '%';
             document.getElementById('nvFail').textContent = stats.nv_debug.fail;
             document.getElementById('nvFailPct').textContent = stats.nv_debug.fail_pct + '%';
-            document.getElementById('nvPassRin').textContent = stats.nv_debug.pass_rin;
-            document.getElementById('nvPassRinPct').textContent = stats.nv_debug.pass_rin_pct + '%';
             
             // IGS Debug
             document.getElementById('igsTotal').textContent = stats.igs_debug.total;
-            document.getElementById('igsPass').textContent = stats.igs_debug.pass;
-            document.getElementById('igsPassPct').textContent = stats.igs_debug.pass_pct + '%';
+            // Pass = Pass RIN for summary boxes
+            document.getElementById('igsPass').textContent = stats.igs_debug.pass_rin;
+            document.getElementById('igsPassPct').textContent = stats.igs_debug.pass_rin_pct + '%';
             document.getElementById('igsFail').textContent = stats.igs_debug.fail;
             document.getElementById('igsFailPct').textContent = stats.igs_debug.fail_pct + '%';
-            document.getElementById('igsPassRin').textContent = stats.igs_debug.pass_rin;
-            document.getElementById('igsPassRinPct').textContent = stats.igs_debug.pass_rin_pct + '%';
+        }
+        
+        function showDebugSNList(debugType, status) {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (!startDate || !endDate) {
+                alert('Please select both start and end dates');
+                return;
+            }
+            
+            const modal = document.getElementById('snModal');
+            const modalContent = document.getElementById('snModalContent');
+            const modalTitle = document.getElementById('snModalTitle');
+            
+            // Set title
+            const debugTypeName = debugType === 'nv_debug' ? 'NV Debug' : 'IGS Debug';
+            const statusName = status === 'pass' ? 'Pass' : (status === 'fail' ? 'Fail' : 'All');
+            modalTitle.textContent = `${debugTypeName} - ${statusName} SNs`;
+            
+            // Show loading
+            modalContent.innerHTML = '<div class="loading">Loading SN list...</div>';
+            modal.style.display = 'block';
+            
+            // Fetch SN list
+            fetch(`/api/debug-comparison-sn-list?start_date=${startDate}&end_date=${endDate}&debug_type=${debugType}&status=${status}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        modalContent.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                        return;
+                    }
+                    
+                    let html = `<p style="margin-bottom: 15px;"><strong>Total: ${data.count} SNs</strong></p>`;
+                    
+                    if (data.count === 0) {
+                        html += '<p>No SNs found for the selected filters.</p>';
+                    } else {
+                        html += '<div class="sn-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 15px;">';
+                        data.sns.forEach(sn => {
+                            html += `<div class="sn-item" style="padding: 8px; background: #f5f5f5; border-radius: 4px; font-family: monospace; text-align: center;">${sn}</div>`;
+                        });
+                        html += '</div>';
+                    }
+                    
+                    modalContent.innerHTML = html;
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    modalContent.innerHTML = `<div class="error">Error loading SN list: ${error.message}</div>`;
+                });
+        }
+        
+        function closeSNModal() {
+            document.getElementById('snModal').style.display = 'none';
+        }
+        
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('snModal');
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
         }
         
         function updateDailyChart(dailyStats) {
@@ -487,6 +646,20 @@
             });
         }
         
+        // Station order: FLA > FLB > AST > FTS > FCT > RIN
+        const STATION_ORDER = ['FLA', 'FLB', 'AST', 'FTS', 'FCT', 'RIN'];
+        
+        function sortStations(stations) {
+            return stations.sort((a, b) => {
+                const indexA = STATION_ORDER.indexOf(a);
+                const indexB = STATION_ORDER.indexOf(b);
+                if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+                if (indexA === -1) return 1;
+                if (indexB === -1) return -1;
+                return indexA - indexB;
+            });
+        }
+        
         function updateStationChart(stationStats) {
             const ctx = document.getElementById('stationChart').getContext('2d');
             
@@ -494,9 +667,15 @@
                 stationChart.destroy();
             }
             
-            const stations = stationStats.map(s => s.station);
-            const nvPassPct = stationStats.map(s => s.nv_debug.pass_pct);
-            const igsPassPct = stationStats.map(s => s.igs_debug.pass_pct);
+            // Sort stations according to custom order
+            const stationMap = {};
+            stationStats.forEach(s => { stationMap[s.station] = s; });
+            const sortedStationNames = sortStations(Object.keys(stationMap));
+            const sortedStationStats = sortedStationNames.map(name => stationMap[name]);
+            
+            const stations = sortedStationNames;
+            const nvPassPct = sortedStationStats.map(s => s.nv_debug.pass_pct);
+            const igsPassPct = sortedStationStats.map(s => s.igs_debug.pass_pct);
             
             stationChart = new Chart(ctx, {
                 type: 'bar',
@@ -631,7 +810,13 @@
             const tbody = document.getElementById('stationTableBody');
             tbody.innerHTML = '';
             
-            stationStats.forEach(station => {
+            // Sort stations according to custom order
+            const stationMap = {};
+            stationStats.forEach(s => { stationMap[s.station] = s; });
+            const sortedStationNames = sortStations(Object.keys(stationMap));
+            const sortedStationStats = sortedStationNames.map(name => stationMap[name]);
+            
+            sortedStationStats.forEach(station => {
                 const row = tbody.insertRow();
                 
                 // Station column

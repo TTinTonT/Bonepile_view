@@ -468,20 +468,84 @@
             }
         }
         
+        // Cache management functions
+        function getCacheKey(category, type) {
+            return `sn_cache_${category}_${type || 'default'}`;
+        }
+        
+        function saveToCache(key, data) {
+            try {
+                const cacheData = {
+                    data: data,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem(key, JSON.stringify(cacheData));
+            } catch (e) {
+                console.warn('Failed to save to cache:', e);
+            }
+        }
+        
+        function loadFromCache(key, maxAge = 300000) { // Default 5 minutes
+            try {
+                const cached = localStorage.getItem(key);
+                if (!cached) return null;
+                
+                const cacheData = JSON.parse(cached);
+                const age = Date.now() - cacheData.timestamp;
+                
+                if (age > maxAge) {
+                    localStorage.removeItem(key);
+                    return null;
+                }
+                
+                return cacheData.data;
+            } catch (e) {
+                console.warn('Failed to load from cache:', e);
+                return null;
+            }
+        }
+        
         function showSNList(category) {
+            const cacheKey = getCacheKey('sn-list', category);
+            const modalBody = document.getElementById('modal-body');
+            
+            if (!modalBody || !modal) return;
+            
+            // Try to load from cache first
+            const cachedData = loadFromCache(cacheKey, 600000); // 10 minutes cache
+            if (cachedData) {
+                // Show cached data immediately
+                modalBody.innerHTML = `<h2>${category.toUpperCase()} Trays (${cachedData.count} total)</h2>
+                    <div style="margin-bottom: 10px; padding: 8px; background: #e3f2fd; border-radius: 4px; font-size: 12px; color: #1976d2;">
+                        📦 Showing: <strong>SN Count</strong> - Unique Serial Numbers (trays). Data loaded from cache.
+                    </div>
+                    <div class="sn-list">${cachedData.sns.map(sn => `<div class="sn-item">${sn}</div>`).join('')}</div>`;
+                modal.style.display = 'block';
+            } else {
+                // Show loading
+                modalBody.innerHTML = '<div class="loading">Loading SN list...</div>';
+                modal.style.display = 'block';
+            }
+            
+            // Fetch fresh data and update
             fetch(`/api/sn-list/${category}`)
                 .then(response => response.json())
                 .then(data => {
-                    const modalBody = document.getElementById('modal-body');
-                    if (modalBody && modal) {
-                        modalBody.innerHTML = `<h2>${category.toUpperCase()} Trays (${data.count} total)</h2>
-                            <div class="sn-list">${data.sns.map(sn => `<div class="sn-item">${sn}</div>`).join('')}</div>`;
-                        modal.style.display = 'block';
-                    }
+                    // Save to cache
+                    saveToCache(cacheKey, data);
+                    
+                    // Update modal with fresh data
+                    modalBody.innerHTML = `<h2>${category.toUpperCase()} Trays (${data.count} total)</h2>
+                        <div style="margin-bottom: 10px; padding: 8px; background: #e3f2fd; border-radius: 4px; font-size: 12px; color: #1976d2;">
+                            📦 Showing: <strong>SN Count</strong> - Unique Serial Numbers (trays). Each SN = 1 tray.
+                        </div>
+                        <div class="sn-list">${data.sns.map(sn => `<div class="sn-item">${sn}</div>`).join('')}</div>`;
                 })
                 .catch(error => {
                     console.error('Error fetching SN list:', error);
-                    alert('Error loading data. Please try again.');
+                    if (!cachedData) {
+                        modalBody.innerHTML = `<div class="error">Error loading data: ${error.message}</div>`;
+                    }
                 });
         }
         
@@ -511,28 +575,62 @@
         }
         
         function showInProcess() {
+            const cacheKey = getCacheKey('in-process', 'default');
+            const modalBody = document.getElementById('modal-body');
+            
+            if (!modalBody || !modal) return;
+            
+            // Try to load from cache first
+            const cachedData = loadFromCache(cacheKey, 600000);
+            if (cachedData) {
+                modalBody.innerHTML = `<h2>In Process Dispositions (${cachedData.count} total)</h2>
+                    <div style="margin-bottom: 10px; padding: 8px; background: #e3f2fd; border-radius: 4px; font-size: 12px; color: #1976d2;">
+                        📊 Showing: <strong>Test Count</strong> - Total test entries. Data loaded from cache.
+                    </div>
+                    <table>
+                        <tr><th>SN</th><th>NV Disposition</th><th>IGS Action</th><th>IGS Status</th></tr>
+                        ${cachedData.data.map(item => `
+                            <tr>
+                                <td><strong>${item.sn}</strong></td>
+                                <td>${item.nv_disposition || 'N/A'}</td>
+                                <td>${item.igs_action || 'N/A'}</td>
+                                <td>${item.igs_status || 'N/A'}</td>
+                            </tr>
+                        `).join('')}
+                    </table>`;
+                modal.style.display = 'block';
+            } else {
+                modalBody.innerHTML = '<div class="loading">Loading in-process dispositions...</div>';
+                modal.style.display = 'block';
+            }
+            
+            // Fetch fresh data
             fetch('/api/in-process')
                 .then(response => response.json())
                 .then(data => {
-                    const modalBody = document.getElementById('modal-body');
-                    if (modalBody && modal) {
-                        modalBody.innerHTML = `<h2>In Process Dispositions (${data.count} total)</h2>
-                            <table>
-                                <tr><th>SN</th><th>NV Disposition</th><th>IGS Action</th></tr>
-                                ${data.data.map(item => `
-                                    <tr>
-                                        <td>${item.sn}</td>
-                                        <td>${item.nv_disposition}</td>
-                                        <td>${item.igs_action}</td>
-                                    </tr>
-                                `).join('')}
-                            </table>`;
-                        modal.style.display = 'block';
-                    }
+                    saveToCache(cacheKey, data);
+                    
+                    modalBody.innerHTML = `<h2>In Process Dispositions (${data.count} total)</h2>
+                        <div style="margin-bottom: 10px; padding: 8px; background: #e3f2fd; border-radius: 4px; font-size: 12px; color: #1976d2;">
+                            📊 Showing: <strong>Test Count</strong> - Total test entries where IGS Status contains 'waiting', 'testing', 'in process', or 'in progress'.
+                        </div>
+                        <table>
+                            <tr><th>SN</th><th>NV Disposition</th><th>IGS Action</th><th>IGS Status</th></tr>
+                            ${data.data.map(item => `
+                                <tr>
+                                    <td><strong>${item.sn}</strong></td>
+                                    <td>${item.nv_disposition || 'N/A'}</td>
+                                    <td>${item.igs_action || 'N/A'}</td>
+                                    <td>${item.igs_status || 'N/A'}</td>
+                                </tr>
+                            `).join('')}
+                        </table>`;
                 })
                 .catch(error => {
                     console.error('Error fetching in-process:', error);
-                    alert('Error loading data. Please try again.');
+                    if (!cachedData) {
+                        modalBody.innerHTML = `<div class="error">Error loading data: ${error.message}</div>`;
+                    }
                 });
         }
         
@@ -903,57 +1001,114 @@
         }
         
         function showCurrentDispositions(type) {
+            const cacheKey = getCacheKey('current-dispositions', type);
+            const modalBody = document.getElementById('modal-body');
+            
+            if (!modalBody || !modal) return;
+            
+            // Try to load from cache first
+            const cachedData = loadFromCache(cacheKey, 600000);
+            let dispositions = [];
+            let title = '';
+            
+            if (cachedData) {
+                if (type === 'completed') {
+                    dispositions = cachedData.completed || [];
+                    title = 'Completed Current Dispositions';
+                } else if (type === 'waiting') {
+                    dispositions = cachedData.waiting || [];
+                    title = 'Waiting Current Dispositions';
+                } else if (type === 'waiting_material') {
+                    dispositions = cachedData.waiting_material || [];
+                    title = 'Waiting for Material Current Dispositions';
+                }
+                
+                // Show cached data immediately
+                let html = `<h2>${title} (${dispositions.length} total)</h2>`;
+                html += `<div style="margin-bottom: 10px; padding: 8px; background: #e3f2fd; border-radius: 4px; font-size: 12px; color: #1976d2;">
+                    📦 Showing: <strong>SN Count</strong> - Unique Serial Numbers. Data loaded from cache.
+                </div>`;
+                html += `<div style="max-height: 70vh; overflow-y: auto;">`;
+                html += `<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">`;
+                html += `<tr style="background: #3498db; color: white; position: sticky; top: 0;">`;
+                html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">SN</th>`;
+                html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">WO</th>`;
+                html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">IGS Status</th>`;
+                html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Row IDX</th>`;
+                html += `</tr>`;
+                
+                dispositions.forEach(disp => {
+                    html += `<tr>`;
+                    html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;"><strong>${disp.sn}</strong></td>`;
+                    html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.wo || 'N/A'}</td>`;
+                    html += `<td style="padding: 8px; border: 1px solid #ddd; max-width: 400px; word-wrap: break-word;">${disp.igs_status || 'N/A'}</td>`;
+                    html += `<td style="padding: 8px; border: 1px solid #ddd;">${disp.row_idx}</td>`;
+                    html += `</tr>`;
+                });
+                
+                html += `</table></div>`;
+                modalBody.innerHTML = html;
+                modal.style.display = 'block';
+            } else {
+                modalBody.innerHTML = '<div class="loading">Loading current dispositions...</div>';
+                modal.style.display = 'block';
+            }
+            
+            // Fetch fresh data
             fetch('/api/current-dispositions')
                 .then(response => response.json())
                 .then(data => {
                     if (data.error) {
-                        alert('Error: ' + data.error);
+                        if (!cachedData) {
+                            modalBody.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                        }
                         return;
                     }
                     
-                    let dispositions = [];
-                    let title = '';
+                    // Save to cache
+                    saveToCache(cacheKey, data);
+                    
                     if (type === 'completed') {
-                        dispositions = data.completed;
+                        dispositions = data.completed || [];
                         title = 'Completed Current Dispositions';
                     } else if (type === 'waiting') {
-                        dispositions = data.waiting;
+                        dispositions = data.waiting || [];
                         title = 'Waiting Current Dispositions';
                     } else if (type === 'waiting_material') {
-                        dispositions = data.waiting_material;
+                        dispositions = data.waiting_material || [];
                         title = 'Waiting for Material Current Dispositions';
                     }
                     
-                    const modalBody = document.getElementById('modal-body');
-                    if (modalBody && modal) {
-                        let html = `<h2>${title} (${dispositions.length} total)</h2>`;
-                        html += `<div style="max-height: 70vh; overflow-y: auto;">`;
-                        html += `<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">`;
-                        html += `<tr style="background: #3498db; color: white; position: sticky; top: 0;">`;
-                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">SN</th>`;
-                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">WO</th>`;
-                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">IGS Status</th>`;
-                        html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Row IDX</th>`;
+                    let html = `<h2>${title} (${dispositions.length} total)</h2>`;
+                    html += `<div style="margin-bottom: 10px; padding: 8px; background: #e3f2fd; border-radius: 4px; font-size: 12px; color: #1976d2;">
+                        📦 Showing: <strong>SN Count</strong> - Unique Serial Numbers where Result = 'FAIL' and PIC = 'IGS'.
+                    </div>`;
+                    html += `<div style="max-height: 70vh; overflow-y: auto;">`;
+                    html += `<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">`;
+                    html += `<tr style="background: #3498db; color: white; position: sticky; top: 0;">`;
+                    html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">SN</th>`;
+                    html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">WO</th>`;
+                    html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">IGS Status</th>`;
+                    html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Row IDX</th>`;
+                    html += `</tr>`;
+                    
+                    dispositions.forEach(disp => {
+                        html += `<tr>`;
+                        html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;"><strong>${disp.sn}</strong></td>`;
+                        html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.wo || 'N/A'}</td>`;
+                        html += `<td style="padding: 8px; border: 1px solid #ddd; max-width: 400px; word-wrap: break-word;">${disp.igs_status || 'N/A'}</td>`;
+                        html += `<td style="padding: 8px; border: 1px solid #ddd;">${disp.row_idx}</td>`;
                         html += `</tr>`;
-                        
-                        dispositions.forEach(disp => {
-                            html += `<tr>`;
-                            html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.sn}</td>`;
-                            html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.wo || 'N/A'}</td>`;
-                            html += `<td style="padding: 8px; border: 1px solid #ddd; max-width: 400px; word-wrap: break-word;">${disp.igs_status || 'N/A'}</td>`;
-                            html += `<td style="padding: 8px; border: 1px solid #ddd;">${disp.row_idx}</td>`;
-                            html += `</tr>`;
-                        });
-                        
-                        html += `</table>`;
-                        html += `</div>`;
-                        modalBody.innerHTML = html;
-                        modal.style.display = 'block';
-                    }
+                    });
+                    
+                    html += `</table></div>`;
+                    modalBody.innerHTML = html;
                 })
                 .catch(error => {
                     console.error('Error loading current dispositions:', error);
-                    alert('Error loading current dispositions. Please check console for details.');
+                    if (!cachedData) {
+                        modalBody.innerHTML = `<div class="error">Error loading data: ${error.message}</div>`;
+                    }
                 });
         }
     </script>

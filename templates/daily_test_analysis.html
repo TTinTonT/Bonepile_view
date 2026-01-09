@@ -166,6 +166,24 @@
             gap: 10px;
         }
         
+        .info-panel {
+            transition: all 0.3s ease;
+        }
+        
+        .info-panel h4 {
+            font-size: 1em;
+            margin-top: 0;
+        }
+        
+        .metric-badge {
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        
+        .info-panel #infoPanelToggle {
+            transition: transform 0.3s ease;
+        }
+        
         .button-group button {
             background: #424242;
         }
@@ -280,6 +298,46 @@
             <button id="debugComparisonBtn" onclick="goToDebugComparison()" style="background: #388e3c;">Debug Comparison (IGS vs NV)</button>
         </div>
         
+        <!-- Info Panel: Understanding Metrics -->
+        <div class="info-panel" style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; margin-bottom: 20px;">
+            <div onclick="toggleInfoPanel()" style="padding: 12px 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #e9ecef; border-radius: 5px 5px 0 0;">
+                <h3 style="margin: 0; color: #495057;">
+                    <span style="margin-right: 8px;">ℹ️</span>
+                    Understanding Metrics
+                </h3>
+                <span id="infoPanelToggle" style="font-size: 18px; transition: transform 0.3s;">▼</span>
+            </div>
+            <div id="infoPanelContent" style="padding: 15px; display: block;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <h4 style="color: #1976d2; margin-bottom: 8px;">
+                            📦 SN Count (Tray Count)
+                        </h4>
+                        <ul style="margin: 0; padding-left: 20px; color: #495057; line-height: 1.6;">
+                            <li>Counts <strong>unique Serial Numbers</strong></li>
+                            <li>Each SN = 1 tray</li>
+                            <li>Used for: Overall statistics, WO/Part grouping</li>
+                            <li>Example: SN "1830126000016" = 1 count (even if tested 5 times)</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 style="color: #f57c00; margin-bottom: 8px;">
+                            📊 Test Count
+                        </h4>
+                        <ul style="margin: 0; padding-left: 20px; color: #495057; line-height: 1.6;">
+                            <li>Counts <strong>total test entries</strong></li>
+                            <li>Includes retests (same SN tested multiple times)</li>
+                            <li>Used for: Station statistics, detailed analysis</li>
+                            <li>Example: SN "1830126000016" tested 5 times = 5 counts</li>
+                        </ul>
+                    </div>
+                </div>
+                <div style="margin-top: 15px; padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 3px;">
+                    <strong>💡 Tip:</strong> Use SN Count for tray-level analysis, Test Count for station throughput analysis.
+                </div>
+            </div>
+        </div>
+        
         <div id="summarySection" style="display: none;">
             <div class="summary-metrics">
                 <div class="metric-box" onclick="showSNDetails('all')" style="cursor: pointer;" title="Click to view all SN details">
@@ -303,8 +361,18 @@
             </div>
             
             <div class="chart-container">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <h2 style="margin: 0;">1. Pass Percentage by Work Order (WO)</h2>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                    <div style="flex: 1;">
+                        <h2 style="margin: 0 0 5px 0;">1. Pass/Fail by Work Order (WO)</h2>
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <span id="woMetricBadge" class="metric-badge" style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; background: #e3f2fd; color: #1976d2;">
+                                📊 SN Count Mode
+                            </span>
+                            <span id="woChartDescription" style="font-size: 12px; color: #666;">
+                                (Each bar = unique Serial Number)
+                            </span>
+                        </div>
+                    </div>
                     <button id="woToggleBtn" onclick="toggleWOChart()" style="padding: 8px 15px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">Switch to Count</button>
                 </div>
                 <canvas id="woChart"></canvas>
@@ -314,8 +382,18 @@
             </div>
             
             <div class="chart-container">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <h2 style="margin: 0;">2. Pass Percentage by Part Number</h2>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                    <div style="flex: 1;">
+                        <h2 style="margin: 0 0 5px 0;">2. Pass/Fail by Part Number</h2>
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <span id="partMetricBadge" class="metric-badge" style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; background: #e3f2fd; color: #1976d2;">
+                                📊 SN Count Mode
+                            </span>
+                            <span id="partChartDescription" style="font-size: 12px; color: #666;">
+                                (Each bar = unique Serial Number)
+                            </span>
+                        </div>
+                    </div>
                     <button id="partToggleBtn" onclick="togglePartChart()" style="padding: 8px 15px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">Switch to Count</button>
                 </div>
                 <canvas id="partChart"></canvas>
@@ -325,9 +403,19 @@
             </div>
             
             <div class="chart-container">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <h2 style="margin: 0;">3. Fail/Pass Percentage by Station</h2>
-                    <button id="stationToggleBtn" onclick="toggleStationChart()" style="padding: 8px 15px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">Switch to Count</button>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                    <div style="flex: 1;">
+                        <h2 style="margin: 0 0 5px 0;">3. Fail/Pass by Station</h2>
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <span id="stationMetricBadge" class="metric-badge" style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; background: #fff3e0; color: #f57c00;">
+                                📊 Test Count Mode
+                            </span>
+                            <span id="stationChartDescription" style="font-size: 12px; color: #666;">
+                                (Each bar = total test entries, includes retests)
+                            </span>
+                        </div>
+                    </div>
+                    <button id="stationToggleBtn" onclick="toggleStationChart()" style="padding: 8px 15px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">Switch to %</button>
                 </div>
                 <canvas id="stationChart"></canvas>
                 <p style="margin-top: 10px; color: #666; font-size: 14px;">
@@ -386,6 +474,70 @@
         let partChartMode = 'percentage'; // 'percentage' or 'count'
         let stationChartMode = 'percentage'; // 'percentage' or 'count'
         
+        // Toggle info panel
+        function toggleInfoPanel() {
+            const content = document.getElementById('infoPanelContent');
+            const toggle = document.getElementById('infoPanelToggle');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                toggle.textContent = '▼';
+                toggle.style.transform = 'rotate(0deg)';
+            } else {
+                content.style.display = 'none';
+                toggle.textContent = '▶';
+                toggle.style.transform = 'rotate(-90deg)';
+            }
+        }
+        
+        // Update chart description and badge
+        function updateChartDescription(chartType, mode) {
+            const descriptions = {
+                'wo': {
+                    'percentage': '(Percentage based on SN count)',
+                    'count': '(Each bar = unique Serial Number)'
+                },
+                'part': {
+                    'percentage': '(Percentage based on SN count)',
+                    'count': '(Each bar = unique Serial Number)'
+                },
+                'station': {
+                    'percentage': '(Percentage based on test count)',
+                    'count': '(Each bar = total test entries, includes retests)'
+                }
+            };
+            
+            const badges = {
+                'wo': {
+                    'percentage': { text: '% Percentage Mode', bg: '#f3e5f5', color: '#7b1fa2' },
+                    'count': { text: '📦 SN Count Mode', bg: '#e3f2fd', color: '#1976d2' }
+                },
+                'part': {
+                    'percentage': { text: '% Percentage Mode', bg: '#f3e5f5', color: '#7b1fa2' },
+                    'count': { text: '📦 SN Count Mode', bg: '#e3f2fd', color: '#1976d2' }
+                },
+                'station': {
+                    'percentage': { text: '% Percentage Mode', bg: '#f3e5f5', color: '#7b1fa2' },
+                    'count': { text: '📊 Test Count Mode', bg: '#fff3e0', color: '#f57c00' }
+                }
+            };
+            
+            const descId = chartType + 'ChartDescription';
+            const badgeId = chartType + 'MetricBadge';
+            const descElement = document.getElementById(descId);
+            const badgeElement = document.getElementById(badgeId);
+            
+            if (descElement && descriptions[chartType][mode]) {
+                descElement.textContent = descriptions[chartType][mode];
+            }
+            
+            if (badgeElement && badges[chartType][mode]) {
+                const badge = badges[chartType][mode];
+                badgeElement.textContent = badge.text;
+                badgeElement.style.background = badge.bg;
+                badgeElement.style.color = badge.color;
+            }
+        }
+        
         function loadAnalysis() {
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
@@ -431,6 +583,11 @@
                     document.getElementById('totalPassPct').textContent = `(${passPct}%)`;
                     document.getElementById('totalFailPct').textContent = `(${failPct}%)`;
                     
+                    // Initialize chart descriptions
+                    updateChartDescription('wo', woChartMode);
+                    updateChartDescription('part', partChartMode);
+                    updateChartDescription('station', stationChartMode);
+                    
                     // Update charts
                     updateWOChart(data);
                     updatePartChart(data);
@@ -450,6 +607,7 @@
         function toggleWOChart() {
             woChartMode = woChartMode === 'percentage' ? 'count' : 'percentage';
             document.getElementById('woToggleBtn').textContent = woChartMode === 'percentage' ? 'Switch to Count' : 'Switch to %';
+            updateChartDescription('wo', woChartMode);
             if (currentData) {
                 updateWOChart(currentData);
             }
@@ -458,6 +616,7 @@
         function togglePartChart() {
             partChartMode = partChartMode === 'percentage' ? 'count' : 'percentage';
             document.getElementById('partToggleBtn').textContent = partChartMode === 'percentage' ? 'Switch to Count' : 'Switch to %';
+            updateChartDescription('part', partChartMode);
             if (currentData) {
                 updatePartChart(currentData);
             }
@@ -466,6 +625,7 @@
         function toggleStationChart() {
             stationChartMode = stationChartMode === 'percentage' ? 'count' : 'percentage';
             document.getElementById('stationToggleBtn').textContent = stationChartMode === 'percentage' ? 'Switch to Count' : 'Switch to %';
+            updateChartDescription('station', stationChartMode);
             if (currentData) {
                 updateStationChart(currentData);
             }
@@ -542,10 +702,37 @@
                         },
                         tooltip: {
                             callbacks: {
+                                title: function(context) {
+                                    return `WO: ${context[0].label}`;
+                                },
+                                label: function(context) {
+                                    const index = context.dataIndex;
+                                    const wo = woData[index];
+                                    let label = context.dataset.label + ': ' + context.parsed.y;
+                                    
+                                    // Add additional metric info
+                                    if (woChartMode === 'percentage') {
+                                        label += `\n📦 SN Count: Pass ${wo.tray_pass || 0}, Fail ${wo.tray_fail || 0}`;
+                                    } else if (woChartMode === 'count') {
+                                        // Calculate test count from stations data
+                                        let testPass = 0, testFail = 0;
+                                        if (wo.stations) {
+                                            Object.values(wo.stations).forEach(st => {
+                                                testPass += (st.pass || 0);
+                                                testFail += (st.fail || 0);
+                                            });
+                                        }
+                                        if (testPass > 0 || testFail > 0) {
+                                            label += `\n📊 Test Count: Pass ${testPass}, Fail ${testFail}`;
+                                        }
+                                    }
+                                    
+                                    return label;
+                                },
                                 afterLabel: function(context) {
                                     const index = context.dataIndex;
                                     const wo = woData[index];
-                                    return `Total: ${wo.tray_total} (Pass: ${wo.tray_pass}, Fail: ${wo.tray_fail})`;
+                                    return `Total SNs: ${wo.tray_total || 0}`;
                                 }
                             }
                         }
@@ -630,10 +817,37 @@
                         },
                         tooltip: {
                             callbacks: {
+                                title: function(context) {
+                                    return `Part Number: ${context[0].label}`;
+                                },
+                                label: function(context) {
+                                    const index = context.dataIndex;
+                                    const part = partData[index];
+                                    let label = context.dataset.label + ': ' + context.parsed.y;
+                                    
+                                    // Add additional metric info
+                                    if (partChartMode === 'percentage') {
+                                        label += `\n📦 SN Count: Pass ${part.tray_pass || 0}, Fail ${part.tray_fail || 0}`;
+                                    } else if (partChartMode === 'count') {
+                                        // Calculate test count from stations data
+                                        let testPass = 0, testFail = 0;
+                                        if (part.stations) {
+                                            Object.values(part.stations).forEach(st => {
+                                                testPass += (st.pass || 0);
+                                                testFail += (st.fail || 0);
+                                            });
+                                        }
+                                        if (testPass > 0 || testFail > 0) {
+                                            label += `\n📊 Test Count: Pass ${testPass}, Fail ${testFail}`;
+                                        }
+                                    }
+                                    
+                                    return label;
+                                },
                                 afterLabel: function(context) {
                                     const index = context.dataIndex;
                                     const part = partData[index];
-                                    return `Total: ${part.tray_total} (Pass: ${part.tray_pass}, Fail: ${part.tray_fail})`;
+                                    return `Total SNs: ${part.tray_total || 0}`;
                                 }
                             }
                         }
@@ -731,10 +945,29 @@
                         },
                         tooltip: {
                             callbacks: {
+                                title: function(context) {
+                                    return `Station: ${context[0].label}`;
+                                },
+                                label: function(context) {
+                                    const index = context.dataIndex;
+                                    const station = sortedStationData[index];
+                                    let label = context.dataset.label + ': ' + context.parsed.y;
+                                    
+                                    // Station chart shows test count by default, add SN count info if available
+                                    if (stationChartMode === 'count') {
+                                        // Note: Station statistics are test-based, so we show test count
+                                        label += `\n📊 Total Tests: ${station.total || 0}`;
+                                    } else {
+                                        // Percentage mode - show test count info
+                                        label += `\n📊 Test Count: Pass ${station.pass || 0}, Fail ${station.fail || 0}`;
+                                    }
+                                    
+                                    return label;
+                                },
                                 afterLabel: function(context) {
                                     const index = context.dataIndex;
                                     const station = sortedStationData[index];
-                                    return `Total: ${station.total} (Pass: ${station.pass}, Fail: ${station.fail})`;
+                                    return `Total Tests: ${station.total || 0}`;
                                 }
                             }
                         }
@@ -750,6 +983,43 @@
             });
         }
         
+        // Cache management functions
+        function getCacheKey(startDate, endDate, wo, station, partNumber, statusFilter) {
+            return `daily_test_sn_${startDate}_${endDate}_${wo}_${station}_${partNumber}_${statusFilter}`;
+        }
+        
+        function saveToCache(key, data) {
+            try {
+                const cacheData = {
+                    data: data,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem(key, JSON.stringify(cacheData));
+            } catch (e) {
+                console.warn('Failed to save to cache:', e);
+            }
+        }
+        
+        function loadFromCache(key, maxAge = 600000) { // Default 10 minutes
+            try {
+                const cached = localStorage.getItem(key);
+                if (!cached) return null;
+                
+                const cacheData = JSON.parse(cached);
+                const age = Date.now() - cacheData.timestamp;
+                
+                if (age > maxAge) {
+                    localStorage.removeItem(key);
+                    return null;
+                }
+                
+                return cacheData.data;
+            } catch (e) {
+                console.warn('Failed to load from cache:', e);
+                return null;
+            }
+        }
+        
         function showSNDetails(statusFilter, wo = 'ALL', station = 'ALL', partNumber = 'ALL') {
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
@@ -759,25 +1029,78 @@
                 return;
             }
             
+            const cacheKey = getCacheKey(startDate, endDate, wo, station, partNumber, statusFilter);
+            const modalContent = document.getElementById('snModalContent');
+            
+            // Try to load from cache first
+            const cachedData = loadFromCache(cacheKey);
+            if (cachedData) {
+                // Show cached data immediately
+                let html = `<p style="margin-bottom: 15px;"><strong>Total: ${cachedData.count} SNs</strong></p>`;
+                html += `<div style="margin-bottom: 10px; padding: 8px; background: #e3f2fd; border-radius: 4px; font-size: 12px; color: #1976d2;">
+                    📦 Showing: <strong>SN Count</strong> - Unique Serial Numbers. Data loaded from cache.
+                </div>`;
+                
+                if (cachedData.count === 0) {
+                    html += '<p>No data found for the selected filters.</p>';
+                } else {
+                    html += '<table><tr><th>SN</th><th>WO</th><th>Part Number(s)</th><th>Status</th><th>Stations (Pass/Fail)</th><th>Test Count</th></tr>';
+                    
+                    cachedData.data.forEach(item => {
+                        const stationsStr = Object.entries(item.stations)
+                            .map(([st, stats]) => `${st}: ${stats.pass}P/${stats.fail}F`)
+                            .join(', ') || 'N/A';
+                        
+                        const partNumbersStr = (item.part_numbers && item.part_numbers.length > 0) 
+                            ? item.part_numbers.join(', ') 
+                            : 'Unknown';
+                        
+                        const statusClass = item.status === 'PASS' ? 'status-pass' : 'status-fail';
+                        
+                        html += `<tr>
+                            <td><strong>${item.sn}</strong></td>
+                            <td>${item.wo}</td>
+                            <td>${partNumbersStr}</td>
+                            <td class="${statusClass}">${item.status}</td>
+                            <td>${stationsStr}</td>
+                            <td>${item.test_count}</td>
+                        </tr>`;
+                    });
+                    
+                    html += '</table>';
+                }
+                
+                modalContent.innerHTML = html;
+                document.getElementById('snModal').style.display = 'block';
+            } else {
+                // Show loading
+                modalContent.innerHTML = '<div class="loading">Loading SN details...</div>';
+                document.getElementById('snModal').style.display = 'block';
+            }
+            
             let url = `/api/daily-test-sn-details?start_date=${startDate}&end_date=${endDate}`;
             if (wo !== 'ALL') url += `&wo=${encodeURIComponent(wo)}`;
             if (station !== 'ALL') url += `&station=${station}`;
             if (partNumber !== 'ALL') url += `&part_number=${encodeURIComponent(partNumber)}`;
             if (statusFilter !== 'all') url += `&status=${statusFilter}`;
             
-            // Show loading in modal
-            document.getElementById('snModalContent').innerHTML = '<div class="loading">Loading SN details...</div>';
-            document.getElementById('snModal').style.display = 'block';
-            
             fetch(url)
                 .then(res => res.json())
                 .then(data => {
                     if (data.error) {
-                        document.getElementById('snModalContent').innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                        if (!cachedData) {
+                            document.getElementById('snModalContent').innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                        }
                         return;
                     }
                     
+                    // Save to cache
+                    saveToCache(cacheKey, data);
+                    
                     let html = `<p style="margin-bottom: 15px;"><strong>Total: ${data.count} SNs</strong></p>`;
+                    html += `<div style="margin-bottom: 10px; padding: 8px; background: #e3f2fd; border-radius: 4px; font-size: 12px; color: #1976d2;">
+                        📦 Showing: <strong>SN Count</strong> - Unique Serial Numbers. Test Count column shows total test entries per SN.
+                    </div>`;
                     
                     if (data.count === 0) {
                         html += '<p>No data found for the selected filters.</p>';
