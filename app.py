@@ -2364,8 +2364,15 @@ def get_debug_comparison():
                 elif isinstance(test_date, pd.Timestamp):
                     test_date = test_date.to_pydatetime()
                 
-                # Normalize test_date to date only (remove time)
-                test_date = test_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                # Normalize test_date to date only
+                if isinstance(test_date, datetime):
+                    test_date = test_date.date()
+                elif isinstance(test_date, str):
+                    test_date = datetime.strptime(test_date, '%Y-%m-%d').date()
+                elif isinstance(test_date, pd.Timestamp):
+                    test_date = test_date.to_pydatetime().date()
+                elif hasattr(test_date, 'date'):
+                    test_date = test_date.date()
                 
                 # Determine debug type based on test_date vs fail_time
                 # - If SN has fail_time in Bonepile:
@@ -2375,7 +2382,12 @@ def get_debug_comparison():
                 #   - Only count as IGS Debug if has at least 1 fail
                 if fail_time:
                     # Normalize fail_time to date only
-                    fail_time_date = fail_time.replace(hour=0, minute=0, second=0, microsecond=0)
+                    if isinstance(fail_time, datetime):
+                        fail_time_date = fail_time.date()
+                    elif hasattr(fail_time, 'date'):
+                        fail_time_date = fail_time.date()
+                    else:
+                        fail_time_date = fail_time
                     
                     if test_date < fail_time_date:
                         # Test before fail_time → IGS Debug
@@ -2452,15 +2464,25 @@ def get_debug_comparison():
             # Check all test entries to determine SN's debug types
             for test_entry in test_list:
                 test_date = test_entry.get('date', start_date)
+                # Normalize test_date to date only
                 if isinstance(test_date, str):
-                    test_date = datetime.strptime(test_date, '%Y-%m-%d')
+                    test_date = datetime.strptime(test_date, '%Y-%m-%d').date()
                 elif isinstance(test_date, pd.Timestamp):
-                    test_date = test_date.to_pydatetime()
-                test_date = test_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                    test_date = test_date.to_pydatetime().date()
+                elif isinstance(test_date, datetime):
+                    test_date = test_date.date()
+                elif hasattr(test_date, 'date'):
+                    test_date = test_date.date()
                 
                 # Determine debug type for this test entry
                 if fail_time:
-                    fail_time_date = fail_time.replace(hour=0, minute=0, second=0, microsecond=0)
+                    # Normalize fail_time to date only
+                    if isinstance(fail_time, datetime):
+                        fail_time_date = fail_time.date()
+                    elif hasattr(fail_time, 'date'):
+                        fail_time_date = fail_time.date()
+                    else:
+                        fail_time_date = fail_time
                     if test_date < fail_time_date:
                         sn_has_igs_tests = True
                         if test_entry['status'] == 'P':

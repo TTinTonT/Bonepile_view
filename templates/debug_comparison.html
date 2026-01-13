@@ -254,9 +254,9 @@
                     <span style="margin-right: 8px;">ℹ️</span>
                     Understanding Debug Categories & Metrics
                 </h3>
-                <span id="infoPanelToggle" style="font-size: 18px; transition: transform 0.3s;">▼</span>
+                <span id="infoPanelToggle" style="font-size: 18px; transition: transform 0.3s;">▲</span>
             </div>
-            <div id="infoPanelContent" style="padding: 15px; display: block;">
+            <div id="infoPanelContent" style="padding: 15px; display: none;">
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                     <div>
                         <h4 style="color: #1976d2; margin-bottom: 8px;">
@@ -434,10 +434,23 @@
                 toggle.style.transform = 'rotate(0deg)';
             } else {
                 content.style.display = 'none';
-                toggle.textContent = '▶';
-                toggle.style.transform = 'rotate(-90deg)';
+                toggle.textContent = '▲';
+                toggle.style.transform = 'rotate(180deg)';
             }
         }
+        
+        // Initialize info panel as collapsed on page load
+        window.addEventListener('load', function() {
+            const content = document.getElementById('infoPanelContent');
+            const toggle = document.getElementById('infoPanelToggle');
+            if (content) {
+                content.style.display = 'none';
+                if (toggle) {
+                    toggle.textContent = '▲';
+                    toggle.style.transform = 'rotate(180deg)';
+                }
+            }
+        });
         
         // Set default dates (today and 7 days ago)
         window.onload = function() {
