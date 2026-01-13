@@ -8,7 +8,7 @@ from flask import Flask, render_template, jsonify, request, redirect, url_for, f
 import pandas as pd
 import numpy as np
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import pytz
 from werkzeug.utils import secure_filename
 import socket
@@ -17,6 +17,7 @@ import glob
 from collections import defaultdict
 import pickle
 import hashlib
+import json
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -506,13 +507,29 @@ def load_daily_test_data(start_date, end_date):
                                 date_part_station_stats[part_number][station]['pass'] += 1
                                 date_part_stats[part_number]['pass'] += 1
                                 
+                                # Determine pass based on date and station
+                                # After 2026-01-01: pass FCT = pass (all WOs)
+                                # Before 2026-01-01: only pass RIN = pass
+                                test_date = test_entry.get('date', current_date)
+                                # Ensure test_date is a date object
+                                if isinstance(test_date, datetime):
+                                    test_date = test_date.date()
+                                elif not isinstance(test_date, date):
+                                    test_date = current_date
+                                cutoff_date = datetime(2026, 1, 1).date()
+                                
                                 if station == 'RIN':
                                     date_pass_rin.add(sn_normalized)
                                     sn_pass_rin.add(sn_normalized)
-                                # Special case: WO 3300001 passes if FCT passes
-                                elif station == 'FCT' and wo == '3300001':
-                                    date_pass_rin.add(sn_normalized)
-                                    sn_pass_rin.add(sn_normalized)
+                                elif station == 'FCT':
+                                    # After 2026: pass FCT = pass
+                                    if test_date >= cutoff_date:
+                                        date_pass_rin.add(sn_normalized)
+                                        sn_pass_rin.add(sn_normalized)
+                                    # Before 2026: only WO 3300001 passes if FCT passes
+                                    elif wo == '3300001':
+                                        date_pass_rin.add(sn_normalized)
+                                        sn_pass_rin.add(sn_normalized)
             except (OSError, PermissionError):
                 # Network path not accessible, skip this date
                 pass
@@ -826,6 +843,318 @@ def load_bonepile_list():
         pass
     
     return bonepile_fail_time
+
+# Function to parse timestamp from filename
+def parse_timestamp_from_filename(filename):
+    """
+    Parse timestamp từ filename: 20251230T161507Z
+    Format: YYYYMMDDTHHMMSSZ
+    Note: Timestamp trong filename là local time (PST/PDT), không phải UTC
+    Returns: datetime object (localized to CA timezone) hoặc None nếu không parse được
+    """
+    try:
+        # Pattern: YYYYMMDDTHHMMSSZ
+        pattern = r'(\d{8})T(\d{6})Z'
+        match = re.search(pattern, filename)
+        if match:
+            date_str = match.group(1)  # 20260112
+            time_str = match.group(2)    # 232647
+            dt_str = f"{date_str}T{time_str}"
+            # Parse as naive datetime first
+            dt_naive = datetime.strptime(dt_str, "%Y%m%dT%H%M%S")
+            # Localize to California timezone (treat as local time, not UTC)
+            ca_tz = pytz.timezone('America/Los_Angeles')
+            dt_ca = ca_tz.localize(dt_naive)
+            return dt_ca
+    except Exception as e:
+        pass
+    return None
+
+# Function to convert datetime to California timezone
+def convert_to_ca_time(dt):
+    """
+    Convert datetime to California timezone
+    If already timezone-aware, return as is (assume it's already in CA timezone)
+    If naive, assume it's already in CA timezone and localize it
+    """
+    if dt is None:
+        return None
+    
+    # If already timezone-aware, return as is (assume it's already CA time)
+    if hasattr(dt, 'tzinfo') and dt.tzinfo:
+        return dt
+    
+    # If naive, assume it's already in CA timezone and localize it
+    try:
+        ca_tz = pytz.timezone('America/Los_Angeles')
+        return ca_tz.localize(dt)
+    except:
+        return dt
+
+# Function to filter test entries by time range
+def filter_by_time_range(test_entries, selected_date, time_range):
+    """
+    Filter test entries by time range
+    time_range: 'day' (9AM-5PM) or 'night' (5PM prev day - 9AM current day)
+    """
+    filtered = []
+    
+    if time_range == 'day':
+        # 9AM - 5PM cùng ngày với selected_date
+        start_time = datetime.combine(selected_date, datetime.min.time().replace(hour=9, minute=0))
+        end_time = datetime.combine(selected_date, datetime.min.time().replace(hour=17, minute=0))
+    else:  # night
+        # 5PM ngày hiện tại - 9AM ngày sau
+        next_date = selected_date + timedelta(days=1)
+        start_time = datetime.combine(selected_date, datetime.min.time().replace(hour=17, minute=0))
+        end_time = datetime.combine(next_date, datetime.min.time().replace(hour=9, minute=0))
+    
+    # Localize times if needed
+    try:
+        ca_tz = pytz.timezone('America/Los_Angeles')
+        start_time = ca_tz.localize(start_time)
+        end_time = ca_tz.localize(end_time)
+    except:
+        pass
+    
+    entries_with_time = 0
+    entries_without_time = 0
+    entries_in_range = 0
+    entries_out_of_range = 0
+    
+    for entry in test_entries:
+        test_time = entry.get('test_time_ca')
+        if test_time:
+            entries_with_time += 1
+            try:
+                # Ensure test_time is timezone-aware
+                if not hasattr(test_time, 'tzinfo') or not test_time.tzinfo:
+                    # Make it timezone-aware using CA timezone
+                    try:
+                        ca_tz = pytz.timezone('America/Los_Angeles')
+                        test_time = ca_tz.localize(test_time)
+                    except:
+                        # If localization fails, skip this entry
+                        continue
+                
+                # Compare times (both should be timezone-aware now)
+                if start_time <= test_time <= end_time:
+                    filtered.append(entry)
+                    entries_in_range += 1
+                else:
+                    entries_out_of_range += 1
+            except Exception as e:
+                # Skip entries with invalid time
+                continue
+        else:
+            # Entry không có test_time_ca - fallback: dùng date từ entry
+            entries_without_time += 1
+            entry_date = entry.get('date')
+            if entry_date:
+                # Nếu không có timestamp, fallback: include nếu date match với selected_date (cho day range)
+                # hoặc date match với selected_date hoặc next_date (cho night range)
+                if time_range == 'day':
+                    if entry_date == selected_date:
+                        # Include all entries from selected_date if no time info
+                        filtered.append(entry)
+                else:  # night
+                    next_date = selected_date + timedelta(days=1)
+                    if entry_date == selected_date or entry_date == next_date:
+                        # Include entries from selected_date or next_date if no time info
+                        filtered.append(entry)
+    
+    return filtered
+
+# Function to load hourly report data
+def load_hourly_report_data(selected_date, time_range):
+    """
+    Load hourly report data for selected date and time range
+    """
+    base_path = r"\\10.16.137.111\Oberon\L10"
+    
+    # Search dates based on time range
+    # Note: After 4PM, data from current day is moved to next day's folder
+    # So data tested on day X might be in folder X+1
+    # Search dates: always search in current day and next day folders
+    # After 4PM, data from current day is moved to next day's folder
+    # So we need to search both folders and filter by time range
+    dates_to_search = [
+        selected_date,  # Current day folder
+        selected_date + timedelta(days=1)  # Next day folder (contains data after 4PM from current day)
+    ]
+    
+    # Load bonepile list
+    bonepile_fail_time = load_bonepile_list()
+    bonepile_sns = set(bonepile_fail_time.keys())
+    
+    # Load SN -> WO mapping
+    sn_wo_mapping = load_fa_work_log()
+    
+    # Collect all test entries
+    all_test_entries = []
+    total_files = 0
+    parsed_files = 0
+    files_with_timestamp = 0
+    
+    for search_date in dates_to_search:
+        year = search_date.strftime("%Y")
+        month = search_date.strftime("%m")
+        day = search_date.strftime("%d")
+        dir_path = os.path.join(base_path, year, month, day)
+        
+        try:
+            if not os.path.isdir(dir_path):
+                continue
+            
+            # Find all zip files
+            zip_files = glob.glob(os.path.join(dir_path, "**", "*.zip"), recursive=True)
+            total_files += len(zip_files)
+            
+            for file_path in zip_files:
+                try:
+                    filename = os.path.basename(file_path)
+                    parsed = parse_test_filename(filename)
+                    
+                    if parsed:
+                        parsed_files += 1
+                        sn, status, station, part_number = parsed
+                        sn_normalized = normalize_sn(sn)
+                        
+                        # Parse timestamp from filename
+                        utc_dt = parse_timestamp_from_filename(filename)
+                        test_time_ca = None
+                        if utc_dt:
+                            test_time_ca = convert_to_ca_time(utc_dt)
+                            files_with_timestamp += 1
+                        
+                        wo = sn_wo_mapping.get(sn_normalized, 'No WO')
+                        wo = normalize_wo(wo) if wo != 'No WO' else wo
+                        
+                        test_entry = {
+                            'sn': sn_normalized,
+                            'status': status,
+                            'station': station,
+                            'part_number': part_number,
+                            'filename': filename,
+                            'wo': wo,
+                            'test_time_ca': test_time_ca,
+                            'date': search_date
+                        }
+                        
+                        all_test_entries.append(test_entry)
+                except Exception as e:
+                    # Skip files that can't be parsed
+                    continue
+        except Exception as e:
+            # Skip directories that can't be accessed
+            continue
+    
+    # Filter by time range
+    filtered_entries = filter_by_time_range(all_test_entries, selected_date, time_range)
+    
+    # Group by SN
+    sn_data = defaultdict(lambda: {
+        'tests': [],
+        'part_numbers': set(),
+        'stations': set(),
+        'bonepile': False,
+        'pass_fail': 'FAIL'
+    })
+    
+    for entry in filtered_entries:
+        sn = entry['sn']
+        sn_data[sn]['tests'].append(entry)
+        sn_data[sn]['part_numbers'].add(entry['part_number'])
+        sn_data[sn]['stations'].add(entry['station'])
+        sn_data[sn]['bonepile'] = (sn in bonepile_sns)
+    
+    # Determine pass/fail for each SN
+    cutoff_date = datetime(2026, 1, 1).date()
+    for sn, details in sn_data.items():
+        tests = details['tests']
+        if not tests:
+            details['pass_fail'] = 'FAIL'
+            continue
+        
+        # Check pass/fail based on rule
+        # After 2026-01-01: pass FCT = pass (check all tests in time range)
+        # Before 2026-01-01: only pass RIN = pass
+        is_pass = False
+        
+        for test in tests:
+            test_date = test.get('date', selected_date)
+            # Ensure test_date is a date object
+            if isinstance(test_date, datetime):
+                test_date = test_date.date()
+            elif isinstance(test_date, str):
+                test_date = datetime.strptime(test_date, '%Y-%m-%d').date()
+            elif isinstance(test_date, pd.Timestamp):
+                test_date = test_date.to_pydatetime().date()
+            elif not isinstance(test_date, date):
+                test_date = selected_date
+            
+            if test_date >= cutoff_date:
+                # New rule: pass FCT = all pass
+                if test['station'] == 'FCT' and test['status'] == 'P':
+                    is_pass = True
+                    break
+            else:
+                # Old rule: only pass if pass RIN
+                if test['station'] == 'RIN' and test['status'] == 'P':
+                    is_pass = True
+                    break
+        
+        details['pass_fail'] = 'PASS' if is_pass else 'FAIL'
+    
+    # Convert sets to lists for JSON serialization
+    for sn, details in sn_data.items():
+        if isinstance(details.get('part_numbers'), set):
+            details['part_numbers'] = sorted(list(details['part_numbers']))
+        if isinstance(details.get('stations'), set):
+            details['stations'] = sorted(list(details['stations']))
+    
+    # Calculate statistics
+    all_sns = set(sn_data.keys())
+    bonepile_sns_in_data = {sn for sn in all_sns if sn_data[sn]['bonepile']}
+    igs_sns_in_data = all_sns - bonepile_sns_in_data
+    
+    all_pass_sns = {sn for sn in all_sns if sn_data[sn]['pass_fail'] == 'PASS'}
+    all_fail_sns = all_sns - all_pass_sns
+    
+    bonepile_pass_sns = {sn for sn in bonepile_sns_in_data if sn_data[sn]['pass_fail'] == 'PASS'}
+    bonepile_fail_sns = bonepile_sns_in_data - bonepile_pass_sns
+    
+    igs_pass_sns = {sn for sn in igs_sns_in_data if sn_data[sn]['pass_fail'] == 'PASS'}
+    igs_fail_sns = igs_sns_in_data - igs_pass_sns
+    
+    stats = {
+        'all': {
+            'total_sns': len(all_sns),
+            'pass_count': len(all_pass_sns),
+            'fail_count': len(all_fail_sns),
+            'bonepile': len(bonepile_sns_in_data),
+            'fresh': len(igs_sns_in_data),
+            'pass_rate': (len(all_pass_sns) / len(all_sns) * 100) if all_sns else 0
+        },
+        'bonepile': {
+            'total_sns': len(bonepile_sns_in_data),
+            'pass_count': len(bonepile_pass_sns),
+            'fail_count': len(bonepile_fail_sns),
+            'pass_rate': (len(bonepile_pass_sns) / len(bonepile_sns_in_data) * 100) if bonepile_sns_in_data else 0
+        },
+        'igs': {
+            'total_sns': len(igs_sns_in_data),
+            'pass_count': len(igs_pass_sns),
+            'fail_count': len(igs_fail_sns),
+            'pass_rate': (len(igs_pass_sns) / len(igs_sns_in_data) * 100) if igs_sns_in_data else 0
+        }
+    }
+    
+    # Return with 'statistics' key for consistency
+    return {
+        'statistics': stats,
+        'sn_details': sn_data
+    }
 
 # Load data
 def load_data(filename=None):
@@ -1585,13 +1914,37 @@ def get_daily_test_analysis():
         for sn, test_list in test_data['sn_test_info'].items():
             wo = test_list[0]['wo'] if test_list else 'No WO'
             
-            # Determine if SN passed (must pass RIN, or FCT for WO 3300001)
-            is_pass = sn in test_data['sn_pass_rin']
-            # Special case: Check if WO 3300001 passed FCT
-            if not is_pass and wo == '3300001' and test_list:
-                has_fct_pass = any(test['station'] == 'FCT' and test['status'] == 'P' for test in test_list)
-                if has_fct_pass:
-                    is_pass = True
+            # Determine if SN passed
+            # After 2026-01-01: pass FCT = pass (all WOs)
+            # Before 2026-01-01: only pass RIN = pass
+            is_pass = False
+            cutoff_date = datetime(2026, 1, 1).date()
+            
+            for test in test_list:
+                test_date = test.get('date')
+                if not test_date:
+                    # Try to get date from filename or use current date
+                    test_date = datetime.now().date()
+                # Ensure test_date is a date object
+                elif isinstance(test_date, datetime):
+                    test_date = test_date.date()
+                elif isinstance(test_date, str):
+                    test_date = datetime.strptime(test_date, '%Y-%m-%d').date()
+                elif isinstance(test_date, pd.Timestamp):
+                    test_date = test_date.to_pydatetime().date()
+                elif not isinstance(test_date, date):
+                    test_date = datetime.now().date()
+                
+                if test_date >= cutoff_date:
+                    # New rule: pass FCT = pass
+                    if test['station'] == 'FCT' and test['status'] == 'P':
+                        is_pass = True
+                        break
+                else:
+                    # Old rule: only pass if pass RIN
+                    if test['station'] == 'RIN' and test['status'] == 'P':
+                        is_pass = True
+                        break
             
             # Check if SN is 1 time pass:
             # 1. All tests must be pass (no fail at any station)
@@ -1837,12 +2190,39 @@ def get_sn_details():
         result = []
         for sn, test_list in test_data['sn_test_info'].items():
             wo_sn = test_list[0]['wo'] if test_list else 'No WO'
-            is_pass = sn in test_data['sn_pass_rin']
-            # Special case: Check if WO 3300001 passed FCT
-            if not is_pass and wo_sn == '3300001' and test_list:
-                has_fct_pass = any(test['station'] == 'FCT' and test['status'] == 'P' for test in test_list)
-                if has_fct_pass:
-                    is_pass = True
+            # Determine if SN passed
+            # After 2026-01-01: pass FCT = pass (all WOs)
+            # Before 2026-01-01: only pass RIN = pass
+            is_pass = False
+            cutoff_date = datetime(2026, 1, 1).date()
+            
+            for test in test_list:
+                test_date = test.get('date')
+                if not test_date:
+                    # Try to get date from filename or use current date
+                    test_date = datetime.now().date()
+                # Ensure test_date is a date object
+                elif isinstance(test_date, datetime):
+                    test_date = test_date.date()
+                elif isinstance(test_date, str):
+                    test_date = datetime.strptime(test_date, '%Y-%m-%d').date()
+                elif isinstance(test_date, pd.Timestamp):
+                    test_date = test_date.to_pydatetime().date()
+                elif hasattr(test_date, 'date'):
+                    test_date = test_date.date()
+                elif not isinstance(test_date, date):
+                    test_date = datetime.now().date()
+                
+                if test_date >= cutoff_date:
+                    # New rule: pass FCT = pass
+                    if test['station'] == 'FCT' and test['status'] == 'P':
+                        is_pass = True
+                        break
+                else:
+                    # Old rule: only pass if pass RIN
+                    if test['station'] == 'RIN' and test['status'] == 'P':
+                        is_pass = True
+                        break
             part_numbers_for_sn = test_data['sn_part_numbers'].get(sn, [])
             
             # Apply filters
@@ -1945,12 +2325,36 @@ def get_debug_comparison():
         }
         
         # Process each SN and each test entry
+        cutoff_date = datetime(2026, 1, 1).date()
         for sn, test_list in test_data['sn_test_info'].items():
             # Get fail_time for this SN from Bonepile
             fail_time = bonepile_fail_time.get(sn)
             
-            # Determine if SN passed (must pass RIN)
-            is_pass = sn in test_data['sn_pass_rin']
+            # Determine if SN passed
+            # After 2026-01-01: pass FCT = pass (all WOs)
+            # Before 2026-01-01: only pass RIN = pass
+            is_pass = False
+            
+            # Check all tests for this SN
+            for test_entry in test_list:
+                test_date = test_entry.get('date', start_date)
+                if isinstance(test_date, str):
+                    test_date = datetime.strptime(test_date, '%Y-%m-%d').date()
+                elif isinstance(test_date, pd.Timestamp):
+                    test_date = test_date.to_pydatetime().date()
+                elif hasattr(test_date, 'date'):
+                    test_date = test_date.date()
+                
+                if test_date >= cutoff_date:
+                    # New rule: pass FCT = pass
+                    if test_entry['station'] == 'FCT' and test_entry['status'] == 'P':
+                        is_pass = True
+                        break
+                else:
+                    # Old rule: only pass if pass RIN
+                    if test_entry['station'] == 'RIN' and test_entry['status'] == 'P':
+                        is_pass = True
+                        break
             
             # Process each test entry individually
             for test_entry in test_list:
@@ -1985,16 +2389,30 @@ def get_debug_comparison():
                     # SN not in Bonepile or no fail_time
                     # Count as IGS Debug if:
                     # 1. Test is a fail, OR
-                    # 2. Test is pass at RIN station (Pass RIN must be counted)
+                    # 2. Test is pass at RIN station (before 2026), OR
+                    # 3. Test is pass at FCT station (after 2026)
                     if test_entry['status'] == 'F':
                         debug_type = 'igs_debug'
                         igs_debug_sns.add(sn)
-                    elif test_entry['status'] == 'P' and test_entry['station'] == 'RIN':
-                        # Pass at RIN must be counted (Pass RIN is subset of Pass)
-                        debug_type = 'igs_debug'
-                        igs_debug_sns.add(sn)
+                    elif test_entry['status'] == 'P':
+                        # After 2026: pass FCT = pass
+                        # Before 2026: only pass RIN = pass
+                        if test_date >= cutoff_date:
+                            if test_entry['station'] == 'FCT':
+                                debug_type = 'igs_debug'
+                                igs_debug_sns.add(sn)
+                            else:
+                                # Skip if pass at other stations (not FCT) after 2026
+                                continue
+                        else:
+                            if test_entry['station'] == 'RIN':
+                                # Pass at RIN must be counted (Pass RIN is subset of Pass)
+                                debug_type = 'igs_debug'
+                                igs_debug_sns.add(sn)
+                            else:
+                                # Skip if pass at other stations (not RIN) before 2026
+                                continue
                     else:
-                        # Skip if pass at other stations (not RIN) and not in Bonepile
                         continue
                 
                 # Update daily stats
@@ -2002,9 +2420,15 @@ def get_debug_comparison():
                 daily_stats[date_str][debug_type]['total'] += 1
                 if test_entry['status'] == 'P':
                     daily_stats[date_str][debug_type]['pass'] += 1
-                    # If pass at RIN station, also count as Pass RIN (subset of Pass)
-                    if test_entry['station'] == 'RIN':
-                        daily_stats[date_str][debug_type]['pass_rin'] += 1
+                    # Count as Pass RIN if:
+                    # - Pass at RIN station (before 2026), OR
+                    # - Pass at FCT station (after 2026)
+                    if test_date >= cutoff_date:
+                        if test_entry['station'] == 'FCT':
+                            daily_stats[date_str][debug_type]['pass_rin'] += 1
+                    else:
+                        if test_entry['station'] == 'RIN':
+                            daily_stats[date_str][debug_type]['pass_rin'] += 1
                 else:
                     daily_stats[date_str][debug_type]['fail'] += 1
                 
@@ -2041,19 +2465,43 @@ def get_debug_comparison():
                         sn_has_igs_tests = True
                         if test_entry['status'] == 'P':
                             sn_has_igs_pass = True
-                            if test_entry['station'] == 'RIN':
-                                sn_has_igs_pass_rin = True
+                            # After 2026: pass FCT = pass_rin, Before 2026: only pass RIN = pass_rin
+                            if test_date >= cutoff_date:
+                                if test_entry['station'] == 'FCT':
+                                    sn_has_igs_pass_rin = True
+                            else:
+                                if test_entry['station'] == 'RIN':
+                                    sn_has_igs_pass_rin = True
                     else:
                         sn_has_nv_tests = True
                         if test_entry['status'] == 'P':
                             sn_has_nv_pass = True
-                            if test_entry['station'] == 'RIN':
-                                sn_has_nv_pass_rin = True
+                            # After 2026: pass FCT = pass_rin, Before 2026: only pass RIN = pass_rin
+                            if test_date >= cutoff_date:
+                                if test_entry['station'] == 'FCT':
+                                    sn_has_nv_pass_rin = True
+                            else:
+                                if test_entry['station'] == 'RIN':
+                                    sn_has_nv_pass_rin = True
                 else:
-                    # Not in Bonepile - only IGS if fail or pass at RIN
-                    if test_entry['status'] == 'F' or (test_entry['status'] == 'P' and test_entry['station'] == 'RIN'):
+                    # Not in Bonepile - only IGS if fail or pass at RIN (before 2026) or FCT (after 2026)
+                    test_date_for_check = test_entry.get('date', start_date)
+                    if isinstance(test_date_for_check, str):
+                        test_date_for_check = datetime.strptime(test_date_for_check, '%Y-%m-%d').date()
+                    elif isinstance(test_date_for_check, pd.Timestamp):
+                        test_date_for_check = test_date_for_check.to_pydatetime().date()
+                    elif hasattr(test_date_for_check, 'date'):
+                        test_date_for_check = test_date_for_check.date()
+                    
+                    is_pass_station = False
+                    if test_date_for_check >= cutoff_date:
+                        is_pass_station = test_entry['status'] == 'P' and test_entry['station'] == 'FCT'
+                    else:
+                        is_pass_station = test_entry['status'] == 'P' and test_entry['station'] == 'RIN'
+                    
+                    if test_entry['status'] == 'F' or is_pass_station:
                         sn_has_igs_tests = True
-                        if test_entry['status'] == 'P' and test_entry['station'] == 'RIN':
+                        if is_pass_station:
                             sn_has_igs_pass = True
                             sn_has_igs_pass_rin = True
             
@@ -2283,8 +2731,214 @@ def inject_daily_test_button():
     """Inject show_daily_test_button=False into all templates (default for main app)"""
     return dict(show_daily_test_button=False)
 
+@app.route('/hourly-report')
+def hourly_report():
+    """Main page for hourly report"""
+    return render_template('hourly_report.html', ip=get_local_ip())
+
+@app.route('/api/hourly-report-data', methods=['POST'])
+def get_hourly_report_data():
+    """
+    Get hourly report data for selected date
+    Request: {'date': '2026-01-10', 'time_range': 'day' or 'night', 'include_sns': true/false}
+    """
+    try:
+        data = request.json
+        selected_date_str = data.get('date')
+        time_range = data.get('time_range', 'day')  # 'day' or 'night'
+        include_sns = data.get('include_sns', True)
+        
+        if not selected_date_str:
+            return jsonify({'success': False, 'error': 'Date is required'}), 400
+        
+        selected_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
+        
+        # Always load fresh data for hourly report (no cache) to ensure accuracy
+        # Never use cache for hourly report - always load from Oberon
+        # Delete any existing cache files for current date and next date to ensure fresh data
+        today = datetime.now().date()
+        tomorrow = today + timedelta(days=1)
+        if selected_date >= today:
+            # Delete cache for current date and next date if they exist
+            for date_to_clean in [selected_date, selected_date + timedelta(days=1)]:
+                for tr in ['day', 'night']:
+                    cache_file = os.path.join(app.config.get('CACHE_FOLDER', 'cache'), 
+                                             f"hourly_report_{date_to_clean.strftime('%Y%m%d')}_{tr}.json")
+                    if os.path.exists(cache_file):
+                        try:
+                            os.remove(cache_file)
+                        except Exception:
+                            pass
+        
+        try:
+            processed_data = load_hourly_report_data(selected_date, time_range)
+            
+            # Ensure data has 'statistics' key for consistency
+            if 'statistics' not in processed_data:
+                processed_data = {'statistics': processed_data}
+            
+            # Don't save to cache - hourly report should always be fresh
+            
+            return jsonify({
+                'success': True,
+                'data': processed_data,
+                'cached': False
+            })
+        except Exception as load_error:
+            import traceback
+            print(f"Error loading hourly report data: {load_error}", flush=True)
+            print(traceback.format_exc(), flush=True)
+            # Return empty data structure instead of error
+            empty_data = {
+                'statistics': {
+                    'all': {'total_sns': 0, 'pass_count': 0, 'fail_count': 0, 'bonepile': 0, 'fresh': 0, 'pass_rate': 0},
+                    'bonepile': {'total_sns': 0, 'pass_count': 0, 'fail_count': 0, 'pass_rate': 0},
+                    'igs': {'total_sns': 0, 'pass_count': 0, 'fail_count': 0, 'pass_rate': 0}
+                },
+                'sn_details': {}
+            }
+            return jsonify({
+                'success': True,
+                'data': empty_data,
+                'cached': False,
+                'warning': f'No data found or error loading: {str(load_error)}'
+            })
+    except Exception as e:
+        import traceback
+        print(f"Error in get_hourly_report_data: {e}", flush=True)
+        print(traceback.format_exc(), flush=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/hourly-report-sn-list', methods=['POST'])
+def get_hourly_report_sn_list():
+    """
+    Get SN list for specific category
+    Request: {'date': '2026-01-10', 'time_range': 'day', 'category': 'all', 'type': 'total'}
+    category: 'all', 'bonepile', 'igs'
+    type: 'total', 'pass', 'fail', 'pass_rate'
+    """
+    try:
+        data = request.json
+        selected_date_str = data.get('date')
+        time_range = data.get('time_range', 'day')
+        category = data.get('category', 'all')
+        type_filter = data.get('type', 'total')
+        
+        if not selected_date_str:
+            return jsonify({'success': False, 'error': 'Date is required'}), 400
+        
+        selected_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
+        
+        # Load hourly report data
+        try:
+            report_data = load_hourly_report_data(selected_date, time_range)
+            sn_details = report_data.get('sn_details', {})
+        except Exception as e:
+            import traceback
+            print(f"Error loading hourly report data in SN list: {e}", flush=True)
+            print(traceback.format_exc(), flush=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+        
+        # Filter SNs based on category and type
+        result_sns = []
+        
+        for sn, details in sn_details.items():
+            # Filter by category
+            is_bonepile = details.get('bonepile', False)
+            if category == 'bonepile' and not is_bonepile:
+                continue
+            if category == 'igs' and is_bonepile:
+                continue
+            
+            # Filter by type
+            pass_fail = details.get('pass_fail', 'FAIL')
+            if type_filter == 'pass' and pass_fail != 'PASS':
+                continue
+            if type_filter == 'fail' and pass_fail != 'FAIL':
+                continue
+            # type_filter == 'total' or 'pass_rate' includes all
+            
+            # Get part numbers and stations
+            part_numbers = details.get('part_numbers', set())
+            stations = details.get('stations', set())
+            
+            result_sns.append({
+                'sn': sn,
+                'bonepile': is_bonepile,
+                'pass_fail': pass_fail,
+                'part_numbers': sorted(list(part_numbers)) if isinstance(part_numbers, set) else (part_numbers if isinstance(part_numbers, list) else []),
+                'stations': sorted(list(stations)) if isinstance(stations, set) else (stations if isinstance(stations, list) else [])
+            })
+        
+        # Sort by SN
+        result_sns.sort(key=lambda x: x['sn'])
+        
+        return jsonify({
+            'success': True,
+            'sns': result_sns,
+            'count': len(result_sns)
+        })
+    except Exception as e:
+        import traceback
+        print(f"Error in get_hourly_report_sn_list: {e}", flush=True)
+        print(traceback.format_exc(), flush=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/hourly-report-download')
+def download_hourly_report_csv():
+    """
+    Download hourly report as CSV
+    """
+    try:
+        selected_date_str = request.args.get('date')
+        time_range = request.args.get('time_range', 'day')
+        
+        if not selected_date_str:
+            return jsonify({'error': 'Date is required'}), 400
+        
+        selected_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
+        
+        # Load hourly report data
+        report_data = load_hourly_report_data(selected_date, time_range)
+        sn_details = report_data.get('sn_details', {})
+        
+        # Create CSV content
+        import csv
+        import io
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Header
+        writer.writerow(['SN', 'Bonepile', 'Pass/Fail', 'Part Numbers', 'Stations', 'Test Count'])
+        
+        # Data rows
+        for sn, details in sorted(sn_details.items()):
+            writer.writerow([
+                sn,
+                'Yes' if details.get('bonepile', False) else 'No',
+                details.get('pass_fail', 'FAIL'),
+                ', '.join(sorted(details.get('part_numbers', set()))),
+                ', '.join(sorted(details.get('stations', set()))),
+                len(details.get('tests', []))
+            ])
+        
+        # Create response
+        from flask import Response
+        response = Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename=hourly_report_{selected_date_str}_{time_range}.csv'}
+        )
+        
+        return response
+    except Exception as e:
+        import traceback
+        print(f"Error in download_hourly_report_csv: {e}", flush=True)
+        print(traceback.format_exc(), flush=True)
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
-    # Cleanup old cache files on startup (older than 90 days)
     cleanup_old_cache()
     
     local_ip = get_local_ip()

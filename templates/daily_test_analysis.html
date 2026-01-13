@@ -296,6 +296,7 @@
             <label>End Date: <input type="date" id="endDate"></label>
             <button onclick="loadAnalysis()">Load Analysis</button>
             <button id="debugComparisonBtn" onclick="goToDebugComparison()" style="background: #388e3c;">Debug Comparison (IGS vs NV)</button>
+            <button onclick="goToHourlyReport()" style="background: #7b1fa2;">Hourly Report</button>
         </div>
         
         <!-- Info Panel: Understanding Metrics -->
@@ -1141,6 +1142,10 @@
         
         function closeModal() {
             document.getElementById('snModal').style.display = 'none';
+        }
+        
+        function goToHourlyReport() {
+            window.location.href = '/hourly-report';
         }
         
         function goToDebugComparison() {

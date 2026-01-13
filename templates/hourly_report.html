@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hourly Report - VR-TS1</title>
+    
+    <!-- Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Flatpickr Date Picker -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    
+    <style>
+        :root {
+            --color-pass: #4caf50;
+            --color-fail: #f44336;
+            --bg-dark: #1a1a1a;
+            --bg-card: #2d2d2d;
+            --bg-card-hover: #3a3a3a;
+            --text-primary: #ffffff;
+            --text-secondary: #b0b0b0;
+            --border-color: #404040;
+        }
+        
+        body {
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+        
+        .page-header {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            padding: 15px 0;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .page-header h1 {
+            font-size: 1.3rem;
+            margin: 0;
+            font-weight: 600;
+        }
+        
+        .page-header .subtitle {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        
+        .control-panel {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .control-panel label {
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 0.85rem;
+            margin-bottom: 5px;
+        }
+        
+        .form-control, .flatpickr-input {
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            padding: 6px 10px;
+            height: 32px;
+        }
+        
+        .form-control:focus, .flatpickr-input:focus {
+            background: var(--bg-dark);
+            border-color: var(--color-pass);
+            color: var(--text-primary);
+            box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+        }
+        
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .summary-card {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .summary-card:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--border-color);
+        }
+        
+        .summary-card-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+        
+        .summary-card-value {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin: 4px 0;
+        }
+        
+        .summary-card-value.pass {
+            color: var(--color-pass);
+        }
+        
+        .summary-card-value.fail {
+            color: var(--color-fail);
+        }
+        
+        .summary-card-value.neutral {
+            color: var(--text-primary);
+        }
+        
+        .summary-card-percentage {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        
+        .section-header {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .section-header h3 {
+            margin: 0;
+            font-weight: 600;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .metric-card {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .metric-card:hover {
+            background: var(--bg-card-hover);
+        }
+        
+        .metric-icon {
+            font-size: 1.2rem;
+            margin-bottom: 6px;
+            opacity: 0.6;
+            color: var(--text-secondary);
+        }
+        
+        .metric-value {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin: 4px 0;
+        }
+        
+        .metric-value.pass {
+            color: var(--color-pass);
+        }
+        
+        .metric-value.fail {
+            color: var(--color-fail);
+        }
+        
+        .metric-value.neutral {
+            color: var(--text-primary);
+        }
+        
+        .metric-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+            margin-top: 4px;
+        }
+        
+        .metric-percentage {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        
+        .time-range-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--bg-dark);
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .toggle-label {
+            font-weight: 500;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
+        
+        .toggle-label.active {
+            color: var(--color-pass);
+        }
+        
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 26px;
+        }
+        
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #555;
+            transition: .4s;
+            border-radius: 26px;
+        }
+        
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .slider {
+            background: var(--color-pass);
+        }
+        
+        input:checked + .slider:before {
+            transform: translateX(24px);
+        }
+        
+        .btn-primary, .btn-download {
+            padding: 6px 16px;
+            font-size: 0.85rem;
+            border-radius: 4px;
+            font-weight: 500;
+            background: var(--color-pass);
+            border: none;
+            color: white;
+        }
+        
+        .btn-primary:hover, .btn-download:hover {
+            background: #45a049;
+            color: white;
+        }
+        
+        .spinner-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .spinner-overlay.active {
+            display: flex;
+        }
+        
+        .spinner-container {
+            background: var(--bg-card);
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+        }
+        
+        .spinner {
+            border: 4px solid #404040;
+            border-top: 4px solid var(--color-pass);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .modal-content {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+        
+        .modal-header {
+            border-bottom: 1px solid var(--border-color);
+            padding: 12px 15px;
+        }
+        
+        .modal-title {
+            font-size: 1rem;
+        }
+        
+        .modal-body {
+            padding: 15px;
+            max-height: 500px;
+            overflow-y: auto;
+            font-size: 0.85rem;
+        }
+        
+        .modal-footer {
+            border-top: 1px solid var(--border-color);
+            padding: 10px 15px;
+        }
+        
+        .btn-close {
+            filter: invert(1);
+        }
+        
+        .sn-item {
+            padding: 8px;
+            margin: 4px 0;
+            background: var(--bg-dark);
+            border-radius: 4px;
+            border-left: 2px solid var(--color-pass);
+            font-size: 0.85rem;
+            transition: all 0.2s ease;
+        }
+        
+        .sn-item:hover {
+            background: var(--bg-card);
+        }
+        
+        .sn-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 8px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        
+        .badge-bonepile {
+            background: rgba(76, 175, 80, 0.2);
+            color: var(--color-pass);
+            border: 1px solid var(--color-pass);
+        }
+        
+        .badge-igs {
+            background: rgba(244, 67, 54, 0.2);
+            color: var(--color-fail);
+            border: 1px solid var(--color-fail);
+        }
+        
+        .badge-pass {
+            background: rgba(76, 175, 80, 0.2);
+            color: var(--color-pass);
+            border: 1px solid var(--color-pass);
+        }
+        
+        .badge-fail {
+            background: rgba(244, 67, 54, 0.2);
+            color: var(--color-fail);
+            border: 1px solid var(--color-fail);
+        }
+        
+        .btn-secondary {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            padding: 6px 12px;
+        }
+        
+        .btn-secondary:hover {
+            background: var(--bg-card-hover);
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Overlay -->
+    <div class="spinner-overlay" id="loadingOverlay">
+        <div class="spinner-container">
+            <div class="spinner"></div>
+            <p style="color: var(--text-primary); margin-top: 10px; font-size: 0.85rem;">Loading data...</p>
+        </div>
+    </div>
+
+    <!-- Page Header -->
+    <div class="page-header">
+        <div class="container">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <button onclick="goBack()" class="btn btn-secondary" style="background: #6c757d; border: none; padding: 8px 16px; font-size: 0.85rem;">
+                    <i class="fas fa-arrow-left me-1"></i>Back
+                </button>
+                <div>
+                    <h1>IGS L10 Summary</h1>
+                    <div class="subtitle">675-Gerles Test Results Analyzer • Real-time log insights</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Control Panel -->
+        <div class="control-panel">
+            <div class="row align-items-end g-3">
+                <div class="col-md-3">
+                    <label class="form-label">
+                        <i class="fas fa-calendar-alt me-1" style="font-size: 0.8rem;"></i>Select Date
+                    </label>
+                    <input type="text" id="datePicker" class="form-control flatpickr-input" placeholder="Select date...">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label d-block mb-2">
+                        <i class="fas fa-clock me-1" style="font-size: 0.8rem;"></i>Time Range
+                    </label>
+                    <div class="time-range-toggle">
+                        <span class="toggle-label active" id="labelDay">9AM-5PM</span>
+                        <label class="switch">
+                            <input type="checkbox" id="timeRangeToggle">
+                            <span class="slider"></span>
+                        </label>
+                        <span class="toggle-label" id="labelNight">5PM-9AM</span>
+                        <span id="timeRangeDescription" style="margin-left: 10px; font-size: 0.75rem; color: var(--text-secondary);"></span>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-check mt-3">
+                        <input class="form-check-input" type="checkbox" id="includeSNs" checked>
+                        <label class="form-check-label" for="includeSNs" style="font-size: 0.8rem;">
+                            Include serial numbers (slower)
+                        </label>
+                    </div>
+                </div>
+                <div class="col-md-3 text-end">
+                    <button class="btn btn-primary" onclick="loadData()">
+                        <i class="fas fa-sync-alt me-1"></i>Analyze
+                    </button>
+                    <button class="btn btn-download ms-2" onclick="downloadCSV()">
+                        <i class="fas fa-download me-1"></i>Download
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="summary-cards" id="summaryCards">
+            <!-- Will be populated by JavaScript -->
+        </div>
+
+        <!-- All Statistics Section -->
+        <div class="section-header">
+            <h3>
+                <i class="fas fa-chart-bar" style="font-size: 0.85rem;"></i>
+                Overall (All)
+            </h3>
+        </div>
+        <div class="stats-grid" id="allStats">
+            <!-- Will be populated by JavaScript -->
+        </div>
+
+        <!-- Bonepile Statistics Section -->
+        <div class="section-header">
+            <h3>
+                <i class="fas fa-database" style="font-size: 0.85rem;"></i>
+                Bonepile (NV Debug)
+            </h3>
+        </div>
+        <div class="stats-grid" id="bonepileStats">
+            <!-- Will be populated by JavaScript -->
+        </div>
+
+        <!-- IGS Statistics Section -->
+        <div class="section-header">
+            <h3>
+                <i class="fas fa-tools" style="font-size: 0.85rem;"></i>
+                IGS Debug
+            </h3>
+        </div>
+        <div class="stats-grid" id="igsStats">
+            <!-- Will be populated by JavaScript -->
+        </div>
+    </div>
+
+    <!-- Modal for SN List -->
+    <div class="modal fade" id="snListModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="snListModalTitle">
+                        <i class="fas fa-list me-2"></i>Serial Numbers
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="snListModalBody">
+                    <!-- SN list will be populated here -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+
+    <script>
+        // Initialize Flatpickr
+        flatpickr("#datePicker", {
+            dateFormat: "Y-m-d",
+            defaultDate: new Date(),
+            maxDate: new Date()
+        });
+
+        // Update time range description
+        function updateTimeRangeDescription() {
+            const date = document.getElementById('datePicker').value;
+            const isNight = document.getElementById('timeRangeToggle').checked;
+            const descEl = document.getElementById('timeRangeDescription');
+            
+            if (!date) {
+                descEl.textContent = '';
+                return;
+            }
+            
+            const selectedDate = new Date(date + 'T00:00:00');
+            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            
+            if (isNight) {
+                const nextDate = new Date(selectedDate);
+                nextDate.setDate(nextDate.getDate() + 1);
+                const day1 = selectedDate.getDate();
+                const month1 = monthNames[selectedDate.getMonth()];
+                const day2 = nextDate.getDate();
+                const month2 = monthNames[nextDate.getMonth()];
+                descEl.textContent = `5PM (${month1} ${day1}) - 9AM (${month2} ${day2})`;
+            } else {
+                const day = selectedDate.getDate();
+                const month = monthNames[selectedDate.getMonth()];
+                descEl.textContent = `9AM - 5PM (${month} ${day})`;
+            }
+        }
+        
+        // Toggle time range
+        document.getElementById('timeRangeToggle').addEventListener('change', function() {
+            const labelDay = document.getElementById('labelDay');
+            const labelNight = document.getElementById('labelNight');
+            if (this.checked) {
+                labelDay.classList.remove('active');
+                labelNight.classList.add('active');
+            } else {
+                labelDay.classList.add('active');
+                labelNight.classList.remove('active');
+            }
+            updateTimeRangeDescription();
+        });
+        
+        document.getElementById('datePicker').addEventListener('change', function() {
+            updateTimeRangeDescription();
+        });
+        
+        // Initialize description on page load
+        window.addEventListener('load', function() {
+            setTimeout(updateTimeRangeDescription, 100);
+        });
+
+        // Create summary card
+        function createSummaryCard(label, value, valueClass, percentage = null) {
+            // Map label to type for API
+            let type = 'total';
+            if (label.toLowerCase() === 'passed') {
+                type = 'pass';
+            } else if (label.toLowerCase() === 'pass rate') {
+                type = 'pass_rate';
+            } else if (label.toLowerCase() === 'bonepile') {
+                type = 'total';  // Show all for bonepile summary
+            }
+            
+            return `
+                <div class="summary-card" onclick="showSNList('all', 'all', '${type}')">
+                    <div class="summary-card-label">${label}</div>
+                    <div class="summary-card-value ${valueClass}">${value.toLocaleString()}</div>
+                    ${percentage !== null ? `<div class="summary-card-percentage">${percentage}%</div>` : ''}
+                </div>
+            `;
+        }
+
+        // Create metric card
+        function createMetricCard(type, value, label, passRate, category, subCategory) {
+            let valueColorClass = 'neutral';
+            if (type === 'pass' || type === 'pass_rate') {
+                valueColorClass = 'pass';
+            } else if (type === 'fail') {
+                valueColorClass = 'fail';
+            }
+            
+            const displayValue = type === 'pass_rate' ? `${value.toFixed(2)}%` : value.toLocaleString();
+            
+            return `
+                <div class="metric-card" 
+                     onclick="showSNList('${category}', '${subCategory}', '${type}')">
+                    <div class="metric-icon">
+                        <i class="${getIcon(type)}"></i>
+                    </div>
+                    <div class="metric-value ${valueColorClass}">${displayValue}</div>
+                    <div class="metric-label">${label}</div>
+                    ${type !== 'pass_rate' ? `<div class="metric-percentage">Pass Rate: ${passRate.toFixed(2)}%</div>` : ''}
+                </div>
+            `;
+        }
+
+        function getIcon(type) {
+            const icons = {
+                total: 'fas fa-boxes',
+                pass: 'fas fa-check-circle',
+                fail: 'fas fa-times-circle',
+                pass_rate: 'fas fa-percentage'
+            };
+            return icons[type] || 'fas fa-chart-bar';
+        }
+
+        // Render summary cards
+        function renderSummaryCards(data) {
+            const container = document.getElementById('summaryCards');
+            // Handle both formats: data.all or data.statistics.all
+            const stats = data.statistics ? data.statistics.all : data.all;
+            
+            if (!stats) {
+                console.error('No stats found in data:', data);
+                container.innerHTML = '<p class="text-muted">No data available</p>';
+                return;
+            }
+            
+            container.innerHTML = `
+                ${createSummaryCard('Total Tested', stats.total_sns || 0, 'neutral')}
+                ${createSummaryCard('Passed', stats.pass_count || 0, 'pass', (stats.pass_rate || 0).toFixed(0))}
+                ${createSummaryCard('Bonepile', stats.bonepile || 0, 'neutral')}
+                ${createSummaryCard('Pass Rate', stats.pass_rate || 0, 'pass')}
+            `;
+        }
+
+        // Render statistics
+        function renderStats(data) {
+            // Handle both cached data format (with 'statistics' key) and direct format
+            const statsData = data.statistics || data;
+            
+            renderSummaryCards(statsData);
+            
+            const categories = ['all', 'bonepile', 'igs'];
+            const containers = {
+                'all': 'allStats',
+                'bonepile': 'bonepileStats',
+                'igs': 'igsStats'
+            };
+
+            categories.forEach(category => {
+                const stats = statsData[category];
+                if (!stats) {
+                    console.warn(`No stats found for category: ${category}`);
+                    return;
+                }
+                const container = document.getElementById(containers[category]);
+                
+                container.innerHTML = `
+                    ${createMetricCard('total', stats.total_sns, 'Total SNs', stats.pass_rate, category, 'all')}
+                    ${createMetricCard('pass', stats.pass_count, 'All Pass', stats.pass_rate, category, 'pass')}
+                    ${createMetricCard('fail', stats.fail_count, 'Fail', stats.pass_rate, category, 'fail')}
+                    ${createMetricCard('pass_rate', stats.pass_rate, 'Pass Rate', stats.pass_rate, category, 'all')}
+                `;
+            });
+        }
+
+        // Show SN List Modal - filter from cached data
+        function showSNList(category, subCategory, type) {
+            const modal = new bootstrap.Modal(document.getElementById('snListModal'));
+            const title = document.getElementById('snListModalTitle');
+            const body = document.getElementById('snListModalBody');
+            
+            const categoryNames = {
+                'all': 'Overall',
+                'bonepile': 'Bonepile',
+                'igs': 'IGS'
+            };
+            
+            const typeNames = {
+                'total': 'All',
+                'total_tested': 'Total Tested',
+                'passed': 'Passed',
+                'pass': 'Pass',
+                'fail': 'Fail',
+                'pass_rate': 'All'
+            };
+            
+            title.innerHTML = `<i class="fas fa-list me-2"></i>${categoryNames[category]} - ${typeNames[type] || type}`;
+            
+            // Check if data is cached
+            if (!cachedReportData || !cachedReportData.sn_details) {
+                body.innerHTML = '<p class="text-danger">Please load data first by clicking "Analyze"</p>';
+                modal.show();
+                return;
+            }
+            
+            // Filter SNs from cached data
+            const sn_details = cachedReportData.sn_details;
+            const filtered_sns = [];
+            
+            for (const [sn, details] of Object.entries(sn_details)) {
+                // Filter by category
+                const is_bonepile = details.bonepile || false;
+                if (category === 'bonepile' && !is_bonepile) {
+                    continue;
+                }
+                if (category === 'igs' && is_bonepile) {
+                    continue;
+                }
+                
+                // Filter by type
+                const pass_fail = details.pass_fail || 'FAIL';
+                if (type === 'pass' && pass_fail !== 'PASS') {
+                    continue;
+                }
+                if (type === 'fail' && pass_fail !== 'FAIL') {
+                    continue;
+                }
+                // type === 'total' or 'pass_rate' includes all
+                
+                // Get part numbers and stations
+                const part_numbers = details.part_numbers || [];
+                const stations = details.stations || [];
+                
+                filtered_sns.push({
+                    sn: sn,
+                    bonepile: is_bonepile,
+                    pass_fail: pass_fail,
+                    part_numbers: Array.isArray(part_numbers) ? part_numbers : (part_numbers ? [part_numbers] : []),
+                    stations: Array.isArray(stations) ? stations : (stations ? [stations] : [])
+                });
+            }
+            
+            // Sort by SN
+            filtered_sns.sort((a, b) => a.sn.localeCompare(b.sn));
+            
+            // Display results
+            if (filtered_sns.length > 0) {
+                body.innerHTML = `
+                    <div style="margin-bottom: 10px; padding: 10px; background: var(--bg-dark); border-radius: 4px;">
+                        <strong>Total: ${filtered_sns.length} SN(s)</strong>
+                    </div>
+                    ${filtered_sns.map(sn => {
+                        const isBonepile = sn.bonepile || false;
+                        const isPass = sn.pass_fail === 'PASS';
+                        const partNumbers = sn.part_numbers && sn.part_numbers.length > 0 ? sn.part_numbers.sort().join(', ') : 'N/A';
+                        const stations = sn.stations && sn.stations.length > 0 ? sn.stations.sort().join(', ') : 'N/A';
+                        return `
+                            <div class="sn-item">
+                                <div style="margin-bottom: 5px;">
+                                    <strong>${sn.sn}</strong>
+                                    <span class="sn-badge ${isBonepile ? 'badge-bonepile' : 'badge-igs'}">
+                                        ${isBonepile ? 'Bonepile' : 'IGS'}
+                                    </span>
+                                    <span class="sn-badge ${isPass ? 'badge-pass' : 'badge-fail'}">
+                                        ${isPass ? 'PASS' : 'FAIL'}
+                                    </span>
+                                </div>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                                    <div>Part Numbers: ${partNumbers}</div>
+                                    <div>Stations: ${stations}</div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                `;
+            } else {
+                body.innerHTML = '<p class="text-muted">No data available</p>';
+            }
+            
+            modal.show();
+        }
+
+        // Load data function
+        function loadData() {
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            loadingOverlay.classList.add('active');
+            
+            const date = document.getElementById('datePicker').value;
+            const timeRange = document.getElementById('timeRangeToggle').checked ? 'night' : 'day';
+            const includeSNs = document.getElementById('includeSNs').checked;
+            
+            if (!date) {
+                alert('Please select a date!');
+                loadingOverlay.classList.remove('active');
+                return;
+            }
+            
+            fetch('/api/hourly-report-data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    date: date,
+                    time_range: timeRange,
+                    include_sns: includeSNs
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Cache the loaded data for fast modal access
+                    cachedReportData = data.data;
+                    renderStats(data.data);
+                    if (data.warning) {
+                        console.warn('Warning:', data.warning);
+                        // Show warning but don't block UI
+                    }
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to load data'));
+                    cachedReportData = null;
+                }
+                loadingOverlay.classList.remove('active');
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error loading data: ' + error.message);
+                loadingOverlay.classList.remove('active');
+            });
+        }
+
+        // Download CSV function
+        function downloadCSV() {
+            const date = document.getElementById('datePicker').value;
+            const timeRange = document.getElementById('timeRangeToggle').checked ? 'night' : 'day';
+            
+            if (!date) {
+                alert('Please select a date!');
+                return;
+            }
+            
+            window.location.href = `/api/hourly-report-download?date=${date}&time_range=${timeRange}`;
+        }
+
+        // Global variable to store loaded data
+        let cachedReportData = null;
+        
+        // Go back function
+        function goBack() {
+            // Try to go to daily test analysis page, fallback to home
+            if (document.referrer && document.referrer.includes('daily-test-analysis')) {
+                window.history.back();
+            } else {
+                window.location.href = '/daily-test-analysis';
+            }
+        }
+        
+        // Load data on page load with today's date
+        window.addEventListener('load', function() {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('datePicker').value = today;
+        });
+    </script>
+</body>
+</html>
