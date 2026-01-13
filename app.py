@@ -644,6 +644,35 @@ def get_latest_date_from_dispositions(dispositions):
         return None
     return max(dates)
 
+# Helper function to get column name with fallback to index
+def get_column_name(df, column_name, fallback_index=None):
+    """
+    Get column name from dataframe with fallback to index.
+    
+    Args:
+        df: pandas DataFrame
+        column_name: Name of the column to search for (case-insensitive, trimmed)
+        fallback_index: Column index (0-based) to use if column name not found
+    
+    Returns:
+        Column name (string) or index (int) if fallback is used
+    """
+    if df is None or df.empty:
+        return fallback_index if fallback_index is not None else column_name
+    
+    # Try to find column by name (case-insensitive, trimmed)
+    column_name_lower = str(column_name).strip().lower()
+    for col in df.columns:
+        if str(col).strip().lower() == column_name_lower:
+            return col
+    
+    # Fallback to index if provided
+    if fallback_index is not None and fallback_index < len(df.columns):
+        return df.columns[fallback_index]
+    
+    # Return original column_name if no match found and no fallback
+    return column_name
+
 # Function to load FA Work Log and create SN -> WO mapping
 def load_fa_work_log():
     """Load FA_Work_Log.xlsx and create SN -> WO mapping"""
@@ -733,8 +762,11 @@ def load_bonepile_list():
     
     try:
         df = pd.read_excel(bonepile_file, sheet_name='VR-TS1', header=1)
-        sn_col = 'sn'
-        fail_time_col = 'fail_time'  # Column C
+        
+        # Get column names with fallback to index
+        # Column A (index 0) = SN, Column D (index 3) = fail_time
+        sn_col = get_column_name(df, 'sn', fallback_index=0)
+        fail_time_col = get_column_name(df, 'fail_time', fallback_index=3)
         
         # Remove duplicate header
         if len(df) > 0 and sn_col in df.columns:
@@ -820,13 +852,21 @@ def load_data(filename=None):
     except Exception:
         return None
     
-    sn_col = 'sn'
-    pic_col = 'PIC'
-    result_col = 'result'
-    igs_action_col = 'IGS Action '
-    igs_status_col = 'IGS Status'
-    bp_duration_col = 'bp_duration'
-    nv_disposition_col = 'NV Disposition'
+    # Get column names with fallback to index
+    # Column A (index 0) = SN
+    # Column C (index 2) = bp_du (bp_duration)
+    # Column I (index 8) = NV Disposition
+    # Column J (index 9) = Status (result - renamed)
+    # Column M (index 12) = PIC
+    # Column N (index 13) = IGS Action
+    # Column O (index 14) = IGS Status
+    sn_col = get_column_name(df, 'sn', fallback_index=0)
+    pic_col = get_column_name(df, 'PIC', fallback_index=12)
+    result_col = get_column_name(df, 'Status', fallback_index=9)
+    igs_action_col = get_column_name(df, 'IGS Action ', fallback_index=13)
+    igs_status_col = get_column_name(df, 'IGS Status', fallback_index=14)
+    bp_duration_col = get_column_name(df, 'bp_duration', fallback_index=2)
+    nv_disposition_col = get_column_name(df, 'NV Disposition', fallback_index=8)
     
     # Remove duplicate header
     if len(df) > 0 and sn_col in df.columns:
@@ -1034,7 +1074,9 @@ def load_data(filename=None):
             'nv_disposition': nv_disposition_col,
             'igs_action': igs_action_col,
             'igs_status': igs_status_col,
-            'bp_duration': bp_duration_col
+            'bp_duration': bp_duration_col,
+            'result': result_col,
+            'pic': pic_col
         }
     }
 
@@ -1071,8 +1113,8 @@ def index():
         fail_empty_action_sns = fail_empty_sns
         completed_records = data['df'][
             ~(data['df'][data['cols']['sn']].isin(fail_empty_action_sns) & 
-              (data['df']['PIC'].astype(str).str.upper().str.strip() == 'IGS') & 
-              (data['df']['result'].astype(str).str.upper().str.strip() == 'FAIL'))
+              (data['df'][data['cols']['pic']].astype(str).str.upper().str.strip() == 'IGS') & 
+              (data['df'][data['cols']['result']].astype(str).str.upper().str.strip() == 'FAIL'))
         ]
         
         bp_durations = []
