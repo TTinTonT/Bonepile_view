@@ -461,33 +461,17 @@
             <div class="row align-items-end g-3">
                 <div class="col-md-3">
                     <label class="form-label">
-                        <i class="fas fa-calendar-alt me-1" style="font-size: 0.8rem;"></i>Select Date
+                        <i class="fas fa-calendar-alt me-1" style="font-size: 0.8rem;"></i>Start Date & Time
                     </label>
-                    <input type="text" id="datePicker" class="form-control flatpickr-input" placeholder="Select date...">
+                    <input type="text" id="startDateTimePicker" class="form-control flatpickr-input" placeholder="Select start date & time...">
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label d-block mb-2">
-                        <i class="fas fa-clock me-1" style="font-size: 0.8rem;"></i>Time Range
+                    <label class="form-label">
+                        <i class="fas fa-calendar-alt me-1" style="font-size: 0.8rem;"></i>End Date & Time
                     </label>
-                    <div class="time-range-toggle">
-                        <span class="toggle-label active" id="labelDay">9AM-5PM</span>
-                        <label class="switch">
-                            <input type="checkbox" id="timeRangeToggle">
-                            <span class="slider"></span>
-                        </label>
-                        <span class="toggle-label" id="labelNight">5PM-9AM</span>
-                        <span id="timeRangeDescription" style="margin-left: 10px; font-size: 0.75rem; color: var(--text-secondary);"></span>
-                    </div>
+                    <input type="text" id="endDateTimePicker" class="form-control flatpickr-input" placeholder="Select end date & time...">
                 </div>
-                <div class="col-md-3">
-                    <div class="form-check mt-3">
-                        <input class="form-check-input" type="checkbox" id="includeSNs" checked>
-                        <label class="form-check-label" for="includeSNs" style="font-size: 0.8rem;">
-                            Include serial numbers (slower)
-                        </label>
-                    </div>
-                </div>
-                <div class="col-md-3 text-end">
+                <div class="col-md-6 text-end">
                     <button class="btn btn-primary" onclick="loadData()">
                         <i class="fas fa-sync-alt me-1"></i>Analyze
                     </button>
@@ -563,63 +547,28 @@
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
 
     <script>
-        // Initialize Flatpickr
-        flatpickr("#datePicker", {
-            dateFormat: "Y-m-d",
-            defaultDate: new Date(),
+        // Initialize Flatpickr for datetime pickers
+        const now = new Date();
+        const defaultStart = new Date(now);
+        defaultStart.setHours(9, 0, 0, 0);
+        
+        const defaultEnd = new Date(now);
+        defaultEnd.setHours(17, 0, 0, 0);
+        
+        flatpickr("#startDateTimePicker", {
+            enableTime: true,
+            dateFormat: "Y-m-d H:i",
+            time_24hr: true,
+            defaultDate: defaultStart,
             maxDate: new Date()
         });
-
-        // Update time range description
-        function updateTimeRangeDescription() {
-            const date = document.getElementById('datePicker').value;
-            const isNight = document.getElementById('timeRangeToggle').checked;
-            const descEl = document.getElementById('timeRangeDescription');
-            
-            if (!date) {
-                descEl.textContent = '';
-                return;
-            }
-            
-            const selectedDate = new Date(date + 'T00:00:00');
-            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            
-            if (isNight) {
-                const nextDate = new Date(selectedDate);
-                nextDate.setDate(nextDate.getDate() + 1);
-                const day1 = selectedDate.getDate();
-                const month1 = monthNames[selectedDate.getMonth()];
-                const day2 = nextDate.getDate();
-                const month2 = monthNames[nextDate.getMonth()];
-                descEl.textContent = `5PM (${month1} ${day1}) - 9AM (${month2} ${day2})`;
-            } else {
-                const day = selectedDate.getDate();
-                const month = monthNames[selectedDate.getMonth()];
-                descEl.textContent = `9AM - 5PM (${month} ${day})`;
-            }
-        }
         
-        // Toggle time range
-        document.getElementById('timeRangeToggle').addEventListener('change', function() {
-            const labelDay = document.getElementById('labelDay');
-            const labelNight = document.getElementById('labelNight');
-            if (this.checked) {
-                labelDay.classList.remove('active');
-                labelNight.classList.add('active');
-            } else {
-                labelDay.classList.add('active');
-                labelNight.classList.remove('active');
-            }
-            updateTimeRangeDescription();
-        });
-        
-        document.getElementById('datePicker').addEventListener('change', function() {
-            updateTimeRangeDescription();
-        });
-        
-        // Initialize description on page load
-        window.addEventListener('load', function() {
-            setTimeout(updateTimeRangeDescription, 100);
+        flatpickr("#endDateTimePicker", {
+            enableTime: true,
+            dateFormat: "Y-m-d H:i",
+            time_24hr: true,
+            defaultDate: defaultEnd,
+            maxDate: new Date()
         });
 
         // Create summary card
@@ -840,12 +789,20 @@
             const loadingOverlay = document.getElementById('loadingOverlay');
             loadingOverlay.classList.add('active');
             
-            const date = document.getElementById('datePicker').value;
-            const timeRange = document.getElementById('timeRangeToggle').checked ? 'night' : 'day';
-            const includeSNs = document.getElementById('includeSNs').checked;
+            const startDateTime = document.getElementById('startDateTimePicker').value;
+            const endDateTime = document.getElementById('endDateTimePicker').value;
             
-            if (!date) {
-                alert('Please select a date!');
+            if (!startDateTime || !endDateTime) {
+                alert('Please select both start and end date & time!');
+                loadingOverlay.classList.remove('active');
+                return;
+            }
+            
+            // Validate that end is after start
+            const start = new Date(startDateTime.replace(' ', 'T'));
+            const end = new Date(endDateTime.replace(' ', 'T'));
+            if (end <= start) {
+                alert('End date & time must be after start date & time!');
                 loadingOverlay.classList.remove('active');
                 return;
             }
@@ -856,9 +813,9 @@
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    date: date,
-                    time_range: timeRange,
-                    include_sns: includeSNs
+                    start_datetime: startDateTime,
+                    end_datetime: endDateTime,
+                    include_sns: true
                 })
             })
             .then(response => response.json())
@@ -886,15 +843,15 @@
 
         // Download CSV function
         function downloadCSV() {
-            const date = document.getElementById('datePicker').value;
-            const timeRange = document.getElementById('timeRangeToggle').checked ? 'night' : 'day';
+            const startDateTime = document.getElementById('startDateTimePicker').value;
+            const endDateTime = document.getElementById('endDateTimePicker').value;
             
-            if (!date) {
-                alert('Please select a date!');
+            if (!startDateTime || !endDateTime) {
+                alert('Please select both start and end date & time!');
                 return;
             }
             
-            window.location.href = `/api/hourly-report-download?date=${date}&time_range=${timeRange}`;
+            window.location.href = `/api/hourly-report-download?start_datetime=${encodeURIComponent(startDateTime)}&end_datetime=${encodeURIComponent(endDateTime)}`;
         }
 
         // Global variable to store loaded data
@@ -910,10 +867,9 @@
             }
         }
         
-        // Load data on page load with today's date
+        // Initialize default dates on page load
         window.addEventListener('load', function() {
-            const today = new Date().toISOString().split('T')[0];
-            document.getElementById('datePicker').value = today;
+            // Default values are already set in flatpickr initialization
         });
     </script>
 </body>

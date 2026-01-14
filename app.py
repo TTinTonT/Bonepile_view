@@ -892,40 +892,44 @@ def convert_to_ca_time(dt):
         return dt
 
 # Function to filter test entries by time range
-def filter_by_time_range(test_entries, selected_date, time_range):
+def filter_by_datetime_range(test_entries, start_datetime, end_datetime):
     """
-    Filter test entries by time range
-    time_range: 'day' (9AM-5PM) or 'night' (5PM prev day - 9AM current day)
+    Filter test entries by datetime range
+    start_datetime: datetime object (timezone-aware or naive)
+    end_datetime: datetime object (timezone-aware or naive)
     """
     filtered = []
     
-    if time_range == 'day':
-        # 9AM - 5PM cùng ngày với selected_date
-        start_time = datetime.combine(selected_date, datetime.min.time().replace(hour=9, minute=0))
-        end_time = datetime.combine(selected_date, datetime.min.time().replace(hour=17, minute=0))
-    else:  # night
-        # 5PM ngày hiện tại - 9AM ngày sau
-        next_date = selected_date + timedelta(days=1)
-        start_time = datetime.combine(selected_date, datetime.min.time().replace(hour=17, minute=0))
-        end_time = datetime.combine(next_date, datetime.min.time().replace(hour=9, minute=0))
-    
-    # Localize times if needed
+    # Ensure both datetimes are timezone-aware (CA timezone)
     try:
         ca_tz = pytz.timezone('America/Los_Angeles')
-        start_time = ca_tz.localize(start_time)
-        end_time = ca_tz.localize(end_time)
-    except:
-        pass
+        if isinstance(start_datetime, str):
+            # Parse string format: "YYYY-MM-DD HH:MM"
+            start_datetime = datetime.strptime(start_datetime, '%Y-%m-%d %H:%M')
+        if isinstance(end_datetime, str):
+            end_datetime = datetime.strptime(end_datetime, '%Y-%m-%d %H:%M')
+        
+        # Localize if naive
+        if not hasattr(start_datetime, 'tzinfo') or not start_datetime.tzinfo:
+            start_time = ca_tz.localize(start_datetime)
+        else:
+            start_time = start_datetime.astimezone(ca_tz) if start_datetime.tzinfo else ca_tz.localize(start_datetime)
+            
+        if not hasattr(end_datetime, 'tzinfo') or not end_datetime.tzinfo:
+            end_time = ca_tz.localize(end_datetime)
+        else:
+            end_time = end_datetime.astimezone(ca_tz) if end_datetime.tzinfo else ca_tz.localize(end_datetime)
+    except Exception as e:
+        # If parsing fails, return empty list
+        return []
     
-    entries_with_time = 0
-    entries_without_time = 0
-    entries_in_range = 0
-    entries_out_of_range = 0
+    # Get date range for fallback (when test_time_ca is not available)
+    start_date = start_time.date()
+    end_date = end_time.date()
     
     for entry in test_entries:
         test_time = entry.get('test_time_ca')
         if test_time:
-            entries_with_time += 1
             try:
                 # Ensure test_time is timezone-aware
                 if not hasattr(test_time, 'tzinfo') or not test_time.tzinfo:
@@ -940,48 +944,54 @@ def filter_by_time_range(test_entries, selected_date, time_range):
                 # Compare times (both should be timezone-aware now)
                 if start_time <= test_time <= end_time:
                     filtered.append(entry)
-                    entries_in_range += 1
-                else:
-                    entries_out_of_range += 1
             except Exception as e:
                 # Skip entries with invalid time
                 continue
         else:
             # Entry không có test_time_ca - fallback: dùng date từ entry
-            entries_without_time += 1
+            # Include if entry date is within the date range
             entry_date = entry.get('date')
             if entry_date:
-                # Nếu không có timestamp, fallback: include nếu date match với selected_date (cho day range)
-                # hoặc date match với selected_date hoặc next_date (cho night range)
-                if time_range == 'day':
-                    if entry_date == selected_date:
-                        # Include all entries from selected_date if no time info
-                        filtered.append(entry)
-                else:  # night
-                    next_date = selected_date + timedelta(days=1)
-                    if entry_date == selected_date or entry_date == next_date:
-                        # Include entries from selected_date or next_date if no time info
-                        filtered.append(entry)
+                # Convert entry_date to date if needed
+                if isinstance(entry_date, datetime):
+                    entry_date = entry_date.date()
+                elif isinstance(entry_date, str):
+                    entry_date = datetime.strptime(entry_date, '%Y-%m-%d').date()
+                elif isinstance(entry_date, pd.Timestamp):
+                    entry_date = entry_date.to_pydatetime().date()
+                
+                # Include if entry date is within range (inclusive)
+                if start_date <= entry_date <= end_date:
+                    filtered.append(entry)
     
     return filtered
 
 # Function to load hourly report data
-def load_hourly_report_data(selected_date, time_range):
+def load_hourly_report_data(start_datetime, end_datetime):
     """
-    Load hourly report data for selected date and time range
+    Load hourly report data for selected datetime range
+    start_datetime: datetime object or string "YYYY-MM-DD HH:MM"
+    end_datetime: datetime object or string "YYYY-MM-DD HH:MM"
     """
     base_path = r"\\10.16.137.111\Oberon\L10"
     
-    # Search dates based on time range
-    # Note: After 4PM, data from current day is moved to next day's folder
-    # So data tested on day X might be in folder X+1
-    # Search dates: always search in current day and next day folders
-    # After 4PM, data from current day is moved to next day's folder
-    # So we need to search both folders and filter by time range
-    dates_to_search = [
-        selected_date,  # Current day folder
-        selected_date + timedelta(days=1)  # Next day folder (contains data after 4PM from current day)
-    ]
+    # Parse datetime strings if needed
+    if isinstance(start_datetime, str):
+        start_datetime = datetime.strptime(start_datetime, '%Y-%m-%d %H:%M')
+    if isinstance(end_datetime, str):
+        end_datetime = datetime.strptime(end_datetime, '%Y-%m-%d %H:%M')
+    
+    # Get date range
+    start_date = start_datetime.date() if isinstance(start_datetime, datetime) else start_datetime
+    end_date = end_datetime.date() if isinstance(end_datetime, datetime) else end_datetime
+    
+    # Search dates: search from 1 day before start_date to 1 day after end_date
+    # to ensure we don't miss any data (data might be in different folders)
+    dates_to_search = []
+    current_date = start_date - timedelta(days=1)
+    while current_date <= end_date + timedelta(days=1):
+        dates_to_search.append(current_date)
+        current_date += timedelta(days=1)
     
     # Load bonepile list
     bonepile_fail_time = load_bonepile_list()
@@ -1049,8 +1059,8 @@ def load_hourly_report_data(selected_date, time_range):
             # Skip directories that can't be accessed
             continue
     
-    # Filter by time range
-    filtered_entries = filter_by_time_range(all_test_entries, selected_date, time_range)
+    # Filter by datetime range
+    filtered_entries = filter_by_datetime_range(all_test_entries, start_datetime, end_datetime)
     
     # Group by SN
     sn_data = defaultdict(lambda: {
@@ -1082,7 +1092,7 @@ def load_hourly_report_data(selected_date, time_range):
         is_pass = False
         
         for test in tests:
-            test_date = test.get('date', selected_date)
+            test_date = test.get('date', start_date)
             # Ensure test_date is a date object
             if isinstance(test_date, datetime):
                 test_date = test_date.date()
@@ -1091,7 +1101,7 @@ def load_hourly_report_data(selected_date, time_range):
             elif isinstance(test_date, pd.Timestamp):
                 test_date = test_date.to_pydatetime().date()
             elif not isinstance(test_date, date):
-                test_date = selected_date
+                test_date = start_date
             
             if test_date >= cutoff_date:
                 # New rule: pass FCT = all pass
@@ -2761,39 +2771,27 @@ def hourly_report():
 @app.route('/api/hourly-report-data', methods=['POST'])
 def get_hourly_report_data():
     """
-    Get hourly report data for selected date
-    Request: {'date': '2026-01-10', 'time_range': 'day' or 'night', 'include_sns': true/false}
+    Get hourly report data for selected datetime range
+    Request: {'start_datetime': '2026-01-10 09:00', 'end_datetime': '2026-01-10 17:00', 'include_sns': true/false}
     """
     try:
         data = request.json
-        selected_date_str = data.get('date')
-        time_range = data.get('time_range', 'day')  # 'day' or 'night'
+        start_datetime_str = data.get('start_datetime')
+        end_datetime_str = data.get('end_datetime')
         include_sns = data.get('include_sns', True)
         
-        if not selected_date_str:
-            return jsonify({'success': False, 'error': 'Date is required'}), 400
+        if not start_datetime_str or not end_datetime_str:
+            return jsonify({'success': False, 'error': 'Start datetime and end datetime are required'}), 400
         
-        selected_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
+        # Parse datetime strings
+        start_datetime = datetime.strptime(start_datetime_str, '%Y-%m-%d %H:%M')
+        end_datetime = datetime.strptime(end_datetime_str, '%Y-%m-%d %H:%M')
         
-        # Always load fresh data for hourly report (no cache) to ensure accuracy
-        # Never use cache for hourly report - always load from Oberon
-        # Delete any existing cache files for current date and next date to ensure fresh data
-        today = datetime.now().date()
-        tomorrow = today + timedelta(days=1)
-        if selected_date >= today:
-            # Delete cache for current date and next date if they exist
-            for date_to_clean in [selected_date, selected_date + timedelta(days=1)]:
-                for tr in ['day', 'night']:
-                    cache_file = os.path.join(app.config.get('CACHE_FOLDER', 'cache'), 
-                                             f"hourly_report_{date_to_clean.strftime('%Y%m%d')}_{tr}.json")
-                    if os.path.exists(cache_file):
-                        try:
-                            os.remove(cache_file)
-                        except Exception:
-                            pass
+        if end_datetime <= start_datetime:
+            return jsonify({'success': False, 'error': 'End datetime must be after start datetime'}), 400
         
         try:
-            processed_data = load_hourly_report_data(selected_date, time_range)
+            processed_data = load_hourly_report_data(start_datetime_str, end_datetime_str)
             
             # Ensure data has 'statistics' key for consistency
             if 'statistics' not in processed_data:
@@ -2835,25 +2833,23 @@ def get_hourly_report_data():
 def get_hourly_report_sn_list():
     """
     Get SN list for specific category
-    Request: {'date': '2026-01-10', 'time_range': 'day', 'category': 'all', 'type': 'total'}
+    Request: {'start_datetime': '2026-01-10 09:00', 'end_datetime': '2026-01-10 17:00', 'category': 'all', 'type': 'total'}
     category: 'all', 'bonepile', 'igs'
     type: 'total', 'pass', 'fail', 'pass_rate'
     """
     try:
         data = request.json
-        selected_date_str = data.get('date')
-        time_range = data.get('time_range', 'day')
+        start_datetime_str = data.get('start_datetime')
+        end_datetime_str = data.get('end_datetime')
         category = data.get('category', 'all')
         type_filter = data.get('type', 'total')
         
-        if not selected_date_str:
-            return jsonify({'success': False, 'error': 'Date is required'}), 400
-        
-        selected_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
+        if not start_datetime_str or not end_datetime_str:
+            return jsonify({'success': False, 'error': 'Start datetime and end datetime are required'}), 400
         
         # Load hourly report data
         try:
-            report_data = load_hourly_report_data(selected_date, time_range)
+            report_data = load_hourly_report_data(start_datetime_str, end_datetime_str)
             sn_details = report_data.get('sn_details', {})
         except Exception as e:
             import traceback
@@ -2912,16 +2908,14 @@ def download_hourly_report_csv():
     Download hourly report as CSV
     """
     try:
-        selected_date_str = request.args.get('date')
-        time_range = request.args.get('time_range', 'day')
+        start_datetime_str = request.args.get('start_datetime')
+        end_datetime_str = request.args.get('end_datetime')
         
-        if not selected_date_str:
-            return jsonify({'error': 'Date is required'}), 400
-        
-        selected_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
+        if not start_datetime_str or not end_datetime_str:
+            return jsonify({'error': 'Start datetime and end datetime are required'}), 400
         
         # Load hourly report data
-        report_data = load_hourly_report_data(selected_date, time_range)
+        report_data = load_hourly_report_data(start_datetime_str, end_datetime_str)
         sn_details = report_data.get('sn_details', {})
         
         # Create CSV content
@@ -2947,10 +2941,13 @@ def download_hourly_report_csv():
         
         # Create response
         from flask import Response
+        # Create filename from datetime range
+        filename_start = start_datetime_str.replace(' ', '_').replace(':', '')
+        filename_end = end_datetime_str.replace(' ', '_').replace(':', '')
         response = Response(
             output.getvalue(),
             mimetype='text/csv',
-            headers={'Content-Disposition': f'attachment; filename=hourly_report_{selected_date_str}_{time_range}.csv'}
+            headers={'Content-Disposition': f'attachment; filename=hourly_report_{filename_start}_to_{filename_end}.csv'}
         )
         
         return response
