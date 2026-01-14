@@ -16,110 +16,144 @@
     
     <style>
         :root {
-            --color-pass: #4caf50;
-            --color-fail: #f44336;
-            --bg-dark: #1a1a1a;
-            --bg-card: #2d2d2d;
-            --bg-card-hover: #3a3a3a;
-            --text-primary: #ffffff;
-            --text-secondary: #b0b0b0;
-            --border-color: #404040;
+            --color-pass: #10b981;
+            --color-fail: #ef4444;
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --bg-card-hover: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border-color: #334155;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        
+        * {
+            box-sizing: border-box;
         }
         
         body {
             background: var(--bg-dark);
             color: var(--text-primary);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            font-size: 13px;
-            line-height: 1.4;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            font-size: 14px;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 24px;
         }
         
         .page-header {
-            background: var(--bg-card);
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
             color: var(--text-primary);
-            padding: 15px 0;
-            margin-bottom: 20px;
+            padding: 24px 0;
+            margin-bottom: 32px;
             border-bottom: 1px solid var(--border-color);
         }
         
         .page-header h1 {
-            font-size: 1.3rem;
+            font-size: 2.25rem;
             margin: 0;
-            font-weight: 600;
+            font-weight: 700;
+            letter-spacing: -0.025em;
         }
         
         .page-header .subtitle {
-            font-size: 0.8rem;
+            font-size: 0.875rem;
             color: var(--text-secondary);
-            margin-top: 4px;
+            margin-top: 6px;
         }
         
         .control-panel {
             background: var(--bg-card);
-            border-radius: 6px;
-            padding: 15px;
-            margin-bottom: 20px;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 32px;
             border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-md);
         }
         
         .control-panel label {
-            color: var(--text-secondary);
-            font-weight: 500;
-            font-size: 0.85rem;
-            margin-bottom: 5px;
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 1.125rem;
+            margin-bottom: 12px;
+            display: block;
         }
         
         .form-control, .flatpickr-input {
             background: var(--bg-dark);
             border: 1px solid var(--border-color);
             color: var(--text-primary);
-            font-size: 0.85rem;
-            padding: 6px 10px;
-            height: 32px;
+            font-size: 1.125rem;
+            padding: 14px 18px;
+            height: 52px;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            font-weight: 500;
         }
         
         .form-control:focus, .flatpickr-input:focus {
             background: var(--bg-dark);
             border-color: var(--color-pass);
             color: var(--text-primary);
-            box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+            outline: none;
         }
         
         .summary-cards {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 12px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+            transition: opacity 0.3s ease;
+        }
+        
+        .summary-cards.disabled {
+            opacity: 0.4;
+            pointer-events: none;
         }
         
         .summary-card {
             background: var(--bg-card);
-            border-radius: 6px;
-            padding: 12px;
+            border-radius: 12px;
+            padding: 20px;
             border: 1px solid var(--border-color);
             text-align: center;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: var(--shadow-sm);
         }
         
         .summary-card:hover {
             background: var(--bg-card-hover);
-            border-color: var(--border-color);
+            border-color: var(--color-pass);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
         }
         
         .summary-card-label {
             font-size: 0.75rem;
             color: var(--text-secondary);
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 6px;
-            font-weight: 500;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+            font-weight: 600;
         }
         
         .summary-card-value {
-            font-size: 1.6rem;
+            font-size: 2rem;
             font-weight: 700;
-            margin: 4px 0;
+            margin: 8px 0;
+            line-height: 1.2;
         }
         
         .summary-card-value.pass {
@@ -135,61 +169,84 @@
         }
         
         .summary-card-percentage {
-            font-size: 0.7rem;
+            font-size: 0.75rem;
             color: var(--text-secondary);
-            margin-top: 4px;
+            margin-top: 6px;
+            font-weight: 500;
         }
         
         .section-header {
-            background: var(--bg-card);
+            background: transparent;
             color: var(--text-primary);
-            padding: 10px 15px;
-            border-radius: 6px;
-            margin-bottom: 15px;
-            border: 1px solid var(--border-color);
+            padding: 16px 0;
+            margin-bottom: 20px;
+            transition: opacity 0.3s ease;
+        }
+        
+        .section-header.disabled {
+            opacity: 0.4;
+            pointer-events: none;
+            cursor: not-allowed;
         }
         
         .section-header h3 {
             margin: 0;
-            font-weight: 600;
-            font-size: 0.95rem;
+            font-weight: 700;
+            font-size: 1.125rem;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
+            letter-spacing: -0.025em;
+        }
+        
+        .section-header h3 i {
+            color: var(--text-secondary);
+            font-size: 1rem;
         }
         
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 12px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+            transition: opacity 0.3s ease;
+        }
+        
+        .stats-grid.disabled {
+            opacity: 0.4;
+            pointer-events: none;
         }
         
         .metric-card {
             background: var(--bg-card);
-            border-radius: 6px;
-            padding: 12px;
+            border-radius: 12px;
+            padding: 20px;
             border: 1px solid var(--border-color);
             text-align: center;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: var(--shadow-sm);
         }
         
         .metric-card:hover {
             background: var(--bg-card-hover);
+            border-color: var(--color-pass);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
         }
         
         .metric-icon {
-            font-size: 1.2rem;
-            margin-bottom: 6px;
-            opacity: 0.6;
+            font-size: 1.5rem;
+            margin-bottom: 12px;
+            opacity: 0.8;
             color: var(--text-secondary);
         }
         
         .metric-value {
-            font-size: 1.6rem;
+            font-size: 2rem;
             font-weight: 700;
-            margin: 4px 0;
+            margin: 8px 0;
+            line-height: 1.2;
         }
         
         .metric-value.pass {
@@ -205,18 +262,19 @@
         }
         
         .metric-label {
-            font-size: 0.7rem;
+            font-size: 0.75rem;
             color: var(--text-secondary);
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            font-weight: 500;
-            margin-top: 4px;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+            margin-top: 8px;
         }
         
         .metric-percentage {
-            font-size: 0.7rem;
+            font-size: 0.75rem;
             color: var(--text-secondary);
-            margin-top: 4px;
+            margin-top: 6px;
+            font-weight: 500;
         }
         
         .time-range-toggle {
@@ -285,18 +343,27 @@
         }
         
         .btn-primary, .btn-download {
-            padding: 6px 16px;
-            font-size: 0.85rem;
-            border-radius: 4px;
-            font-weight: 500;
+            padding: 14px 28px;
+            font-size: 1.125rem;
+            border-radius: 8px;
+            font-weight: 600;
             background: var(--color-pass);
             border: none;
             color: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: var(--shadow-sm);
         }
         
         .btn-primary:hover, .btn-download:hover {
-            background: #45a049;
+            background: #059669;
             color: white;
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .btn-primary:active, .btn-download:active {
+            transform: translateY(0);
         }
         
         .spinner-overlay {
@@ -343,27 +410,34 @@
             background: var(--bg-card);
             color: var(--text-primary);
             border: 1px solid var(--border-color);
+            max-width: 900px;
+        }
+        
+        .modal-dialog {
+            max-width: 900px;
         }
         
         .modal-header {
             border-bottom: 1px solid var(--border-color);
-            padding: 12px 15px;
+            padding: 16px 24px;
         }
         
         .modal-title {
-            font-size: 1rem;
+            font-size: 1.125rem;
+            font-weight: 600;
         }
         
         .modal-body {
-            padding: 15px;
-            max-height: 500px;
+            padding: 20px 24px;
+            max-height: 600px;
             overflow-y: auto;
-            font-size: 0.85rem;
+            font-size: 1rem;
+            line-height: 1.4;
         }
         
         .modal-footer {
             border-top: 1px solid var(--border-color);
-            padding: 10px 15px;
+            padding: 12px 24px;
         }
         
         .btn-close {
@@ -371,13 +445,38 @@
         }
         
         .sn-item {
-            padding: 8px;
+            padding: 10px 16px;
             margin: 4px 0;
             background: var(--bg-dark);
-            border-radius: 4px;
-            border-left: 2px solid var(--color-pass);
-            font-size: 0.85rem;
+            border-radius: 8px;
+            border-left: 3px solid var(--color-pass);
+            font-size: 1rem;
             transition: all 0.2s ease;
+        }
+        
+        .sn-item-row {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        
+        .sn-item-row:last-child {
+            margin-bottom: 0;
+        }
+        
+        .sn-item-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            align-items: start;
+        }
+        
+        .sn-item-badges {
+            display: flex;
+            gap: 6px;
+            align-items: center;
         }
         
         .sn-item:hover {
@@ -386,11 +485,11 @@
         
         .sn-badge {
             display: inline-block;
-            padding: 2px 6px;
-            border-radius: 8px;
-            font-size: 0.65rem;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
             font-weight: 600;
-            margin-left: 8px;
+            white-space: nowrap;
         }
         
         .badge-bonepile {
@@ -421,13 +520,19 @@
             background: var(--bg-card);
             border: 1px solid var(--border-color);
             color: var(--text-primary);
-            font-size: 0.85rem;
-            padding: 6px 12px;
+            font-size: 0.875rem;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
         }
         
         .btn-secondary:hover {
             background: var(--bg-card-hover);
             color: var(--text-primary);
+            border-color: var(--text-secondary);
+            transform: translateY(-1px);
         }
     </style>
 </head>
@@ -449,7 +554,7 @@
                 </button>
                 <div>
                     <h1>IGS L10 Summary</h1>
-                    <div class="subtitle">675-Gerles Test Results Analyzer • Real-time log insights</div>
+                    <div class="subtitle">IGS Test Results Analyzer • Real-time log insights</div>
                 </div>
             </div>
         </div>
@@ -461,69 +566,69 @@
             <div class="row align-items-end g-3">
                 <div class="col-md-3">
                     <label class="form-label">
-                        <i class="fas fa-calendar-alt me-1" style="font-size: 0.8rem;"></i>Start Date & Time
+                        <i class="fas fa-calendar-alt me-2" style="font-size: 1.125rem;"></i>Start Date & Time
                     </label>
                     <input type="text" id="startDateTimePicker" class="form-control flatpickr-input" placeholder="Select start date & time...">
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">
-                        <i class="fas fa-calendar-alt me-1" style="font-size: 0.8rem;"></i>End Date & Time
+                        <i class="fas fa-calendar-alt me-2" style="font-size: 1.125rem;"></i>End Date & Time
                     </label>
                     <input type="text" id="endDateTimePicker" class="form-control flatpickr-input" placeholder="Select end date & time...">
                 </div>
                 <div class="col-md-6 text-end">
                     <button class="btn btn-primary" onclick="loadData()">
-                        <i class="fas fa-sync-alt me-1"></i>Analyze
+                        <i class="fas fa-sync-alt me-2"></i>Analyze
                     </button>
                     <button class="btn btn-download ms-2" onclick="downloadCSV()">
-                        <i class="fas fa-download me-1"></i>Download
+                        <i class="fas fa-download me-2"></i>Download
                     </button>
                 </div>
             </div>
         </div>
 
         <!-- Summary Cards -->
-        <div class="summary-cards" id="summaryCards">
+        <div class="summary-cards disabled" id="summaryCards">
             <!-- Will be populated by JavaScript -->
         </div>
 
         <!-- All Statistics Section -->
-        <div class="section-header">
+        <div class="section-header disabled" id="allSectionHeader">
             <h3>
                 <i class="fas fa-chart-bar" style="font-size: 0.85rem;"></i>
                 Overall (All)
             </h3>
         </div>
-        <div class="stats-grid" id="allStats">
+        <div class="stats-grid disabled" id="allStats">
             <!-- Will be populated by JavaScript -->
         </div>
 
         <!-- Bonepile Statistics Section -->
-        <div class="section-header">
+        <div class="section-header disabled" id="bonepileSectionHeader">
             <h3>
                 <i class="fas fa-database" style="font-size: 0.85rem;"></i>
                 Bonepile (NV Debug)
             </h3>
         </div>
-        <div class="stats-grid" id="bonepileStats">
+        <div class="stats-grid disabled" id="bonepileStats">
             <!-- Will be populated by JavaScript -->
         </div>
 
         <!-- IGS Statistics Section -->
-        <div class="section-header">
+        <div class="section-header disabled" id="igsSectionHeader">
             <h3>
                 <i class="fas fa-tools" style="font-size: 0.85rem;"></i>
                 IGS Debug
             </h3>
         </div>
-        <div class="stats-grid" id="igsStats">
+        <div class="stats-grid disabled" id="igsStats">
             <!-- Will be populated by JavaScript -->
         </div>
     </div>
 
     <!-- Modal for SN List -->
     <div class="modal fade" id="snListModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="snListModalTitle">
@@ -624,6 +729,28 @@
                 pass_rate: 'fas fa-percentage'
             };
             return icons[type] || 'fas fa-chart-bar';
+        }
+
+        // Station order: FLA > FLB > AST > FTS > FCT > RIN
+        const STATION_ORDER = ['FLA', 'FLB', 'AST', 'FTS', 'FCT', 'RIN'];
+        
+        function sortStations(stations) {
+            if (!Array.isArray(stations)) {
+                return stations;
+            }
+            return stations.sort((a, b) => {
+                const indexA = STATION_ORDER.indexOf(a);
+                const indexB = STATION_ORDER.indexOf(b);
+                // If both stations are in the order list, sort by their index
+                if (indexA !== -1 && indexB !== -1) {
+                    return indexA - indexB;
+                }
+                // If only one is in the order list, prioritize it
+                if (indexA !== -1) return -1;
+                if (indexB !== -1) return 1;
+                // If neither is in the order list, sort alphabetically
+                return a.localeCompare(b);
+            });
         }
 
         // Render summary cards
@@ -731,16 +858,18 @@
                 }
                 // type === 'total' or 'pass_rate' includes all
                 
-                // Get part numbers and stations
+                // Get part numbers, stations, and last pass time
                 const part_numbers = details.part_numbers || [];
                 const stations = details.stations || [];
+                const last_pass_time = details.last_pass_time || null;
                 
                 filtered_sns.push({
                     sn: sn,
                     bonepile: is_bonepile,
                     pass_fail: pass_fail,
                     part_numbers: Array.isArray(part_numbers) ? part_numbers : (part_numbers ? [part_numbers] : []),
-                    stations: Array.isArray(stations) ? stations : (stations ? [stations] : [])
+                    stations: Array.isArray(stations) ? stations : (stations ? [stations] : []),
+                    last_pass_time: last_pass_time
                 });
             }
             
@@ -750,35 +879,58 @@
             // Display results
             if (filtered_sns.length > 0) {
                 body.innerHTML = `
-                    <div style="margin-bottom: 10px; padding: 10px; background: var(--bg-dark); border-radius: 4px;">
+                    <div style="margin-bottom: 12px; padding: 12px; background: var(--bg-dark); border-radius: 6px; font-size: 1rem;">
                         <strong>Total: ${filtered_sns.length} SN(s)</strong>
                     </div>
                     ${filtered_sns.map(sn => {
                         const isBonepile = sn.bonepile || false;
                         const isPass = sn.pass_fail === 'PASS';
                         const partNumbers = sn.part_numbers && sn.part_numbers.length > 0 ? sn.part_numbers.sort().join(', ') : 'N/A';
-                        const stations = sn.stations && sn.stations.length > 0 ? sn.stations.sort().join(', ') : 'N/A';
+                        const stations = sn.stations && sn.stations.length > 0 ? sortStations([...sn.stations]).join(', ') : 'N/A';
+                        
+                        // Format last pass time
+                        let lastPassTimeDisplay = 'N/A';
+                        if (isPass && sn.last_pass_time) {
+                            try {
+                                const passTime = new Date(sn.last_pass_time);
+                                lastPassTimeDisplay = passTime.toLocaleString('en-US', {
+                                    year: 'numeric',
+                                    month: '2-digit',
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    second: '2-digit',
+                                    hour12: false
+                                });
+                            } catch (e) {
+                                lastPassTimeDisplay = sn.last_pass_time;
+                            }
+                        }
+                        
                         return `
                             <div class="sn-item">
-                                <div style="margin-bottom: 5px;">
-                                    <strong>${sn.sn}</strong>
-                                    <span class="sn-badge ${isBonepile ? 'badge-bonepile' : 'badge-igs'}">
-                                        ${isBonepile ? 'Bonepile' : 'IGS'}
-                                    </span>
-                                    <span class="sn-badge ${isPass ? 'badge-pass' : 'badge-fail'}">
-                                        ${isPass ? 'PASS' : 'FAIL'}
-                                    </span>
+                                <div class="sn-item-row">
+                                    <strong style="font-size: 1.1rem;">${sn.sn}</strong>
+                                    ${isPass ? `<div style="font-size: 0.9rem; color: var(--color-pass);"><strong>Last Pass:</strong> ${lastPassTimeDisplay}</div>` : '<div></div>'}
+                                    <div class="sn-item-badges">
+                                        <span class="sn-badge ${isBonepile ? 'badge-bonepile' : 'badge-igs'}">
+                                            ${isBonepile ? 'Bonepile' : 'IGS'}
+                                        </span>
+                                        <span class="sn-badge ${isPass ? 'badge-pass' : 'badge-fail'}">
+                                            ${isPass ? 'PASS' : 'FAIL'}
+                                        </span>
+                                    </div>
                                 </div>
-                                <div style="font-size: 0.75rem; color: var(--text-secondary);">
-                                    <div>Part Numbers: ${partNumbers}</div>
-                                    <div>Stations: ${stations}</div>
+                                <div class="sn-item-info" style="font-size: 0.95rem; color: var(--text-secondary); line-height: 1.3;">
+                                    <div><strong style="color: var(--text-primary);">Part Numbers:</strong><br style="line-height: 1.1;">${partNumbers}</div>
+                                    <div><strong style="color: var(--text-primary);">Stations:</strong><br style="line-height: 1.1;">${stations}</div>
                                 </div>
                             </div>
                         `;
                     }).join('')}
                 `;
             } else {
-                body.innerHTML = '<p class="text-muted">No data available</p>';
+                body.innerHTML = '<p class="text-muted" style="font-size: 1rem;">No data available</p>';
             }
             
             modal.show();
@@ -824,6 +976,8 @@
                     // Cache the loaded data for fast modal access
                     cachedReportData = data.data;
                     renderStats(data.data);
+                    // Enable all sections after data is loaded
+                    enableSections();
                     if (data.warning) {
                         console.warn('Warning:', data.warning);
                         // Show warning but don't block UI
@@ -831,6 +985,7 @@
                 } else {
                     alert('Error: ' + (data.error || 'Failed to load data'));
                     cachedReportData = null;
+                    disableSections();
                 }
                 loadingOverlay.classList.remove('active');
             })
@@ -838,6 +993,7 @@
                 console.error('Error:', error);
                 alert('Error loading data: ' + error.message);
                 loadingOverlay.classList.remove('active');
+                disableSections();
             });
         }
 
@@ -857,6 +1013,27 @@
         // Global variable to store loaded data
         let cachedReportData = null;
         
+        // Enable/Disable sections
+        function enableSections() {
+            document.getElementById('summaryCards').classList.remove('disabled');
+            document.getElementById('allSectionHeader').classList.remove('disabled');
+            document.getElementById('allStats').classList.remove('disabled');
+            document.getElementById('bonepileSectionHeader').classList.remove('disabled');
+            document.getElementById('bonepileStats').classList.remove('disabled');
+            document.getElementById('igsSectionHeader').classList.remove('disabled');
+            document.getElementById('igsStats').classList.remove('disabled');
+        }
+        
+        function disableSections() {
+            document.getElementById('summaryCards').classList.add('disabled');
+            document.getElementById('allSectionHeader').classList.add('disabled');
+            document.getElementById('allStats').classList.add('disabled');
+            document.getElementById('bonepileSectionHeader').classList.add('disabled');
+            document.getElementById('bonepileStats').classList.add('disabled');
+            document.getElementById('igsSectionHeader').classList.add('disabled');
+            document.getElementById('igsStats').classList.add('disabled');
+        }
+        
         // Go back function
         function goBack() {
             // Try to go to daily test analysis page, fallback to home
@@ -870,6 +1047,7 @@
         // Initialize default dates on page load
         window.addEventListener('load', function() {
             // Default values are already set in flatpickr initialization
+            // Sections are disabled by default
         });
     </script>
 </body>

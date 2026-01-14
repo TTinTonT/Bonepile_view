@@ -1078,18 +1078,20 @@ def load_hourly_report_data(start_datetime, end_datetime):
         sn_data[sn]['stations'].add(entry['station'])
         sn_data[sn]['bonepile'] = (sn in bonepile_sns)
     
-    # Determine pass/fail for each SN
+    # Determine pass/fail for each SN and track last pass time
     cutoff_date = datetime(2026, 1, 1).date()
     for sn, details in sn_data.items():
         tests = details['tests']
         if not tests:
             details['pass_fail'] = 'FAIL'
+            details['last_pass_time'] = None
             continue
         
         # Check pass/fail based on rule
         # After 2026-01-01: pass FCT = pass (check all tests in time range)
         # Before 2026-01-01: only pass RIN = pass
         is_pass = False
+        last_pass_time = None
         
         for test in tests:
             test_date = test.get('date', start_date)
@@ -1107,21 +1109,35 @@ def load_hourly_report_data(start_datetime, end_datetime):
                 # New rule: pass FCT = all pass
                 if test['station'] == 'FCT' and test['status'] == 'P':
                     is_pass = True
-                    break
+                    # Track the latest pass time
+                    test_time = test.get('test_time_ca')
+                    if test_time:
+                        if last_pass_time is None or test_time > last_pass_time:
+                            last_pass_time = test_time
             else:
                 # Old rule: only pass if pass RIN
                 if test['station'] == 'RIN' and test['status'] == 'P':
                     is_pass = True
-                    break
+                    # Track the latest pass time
+                    test_time = test.get('test_time_ca')
+                    if test_time:
+                        if last_pass_time is None or test_time > last_pass_time:
+                            last_pass_time = test_time
         
         details['pass_fail'] = 'PASS' if is_pass else 'FAIL'
+        details['last_pass_time'] = last_pass_time
     
     # Convert sets to lists for JSON serialization
     for sn, details in sn_data.items():
         if isinstance(details.get('part_numbers'), set):
             details['part_numbers'] = sorted(list(details['part_numbers']))
         if isinstance(details.get('stations'), set):
-            details['stations'] = sorted(list(details['stations']))
+            details['stations'] = sort_stations(list(details['stations']))
+        elif isinstance(details.get('stations'), list):
+            details['stations'] = sort_stations(details['stations'])
+        # Convert datetime to string for JSON serialization
+        if details.get('last_pass_time') and isinstance(details['last_pass_time'], datetime):
+            details['last_pass_time'] = details['last_pass_time'].isoformat()
     
     # Calculate statistics
     all_sns = set(sn_data.keys())
@@ -2930,12 +2946,18 @@ def download_hourly_report_csv():
         
         # Data rows
         for sn, details in sorted(sn_details.items()):
+            # Get stations and sort them according to STATION_ORDER
+            stations_list = details.get('stations', [])
+            if isinstance(stations_list, set):
+                stations_list = list(stations_list)
+            sorted_stations = sort_stations(stations_list)
+            
             writer.writerow([
                 sn,
                 'Yes' if details.get('bonepile', False) else 'No',
                 details.get('pass_fail', 'FAIL'),
-                ', '.join(sorted(details.get('part_numbers', set()))),
-                ', '.join(sorted(details.get('stations', set()))),
+                ', '.join(sorted(details.get('part_numbers', []))),
+                ', '.join(sorted_stations),
                 len(details.get('tests', []))
             ])
         
