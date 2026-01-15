@@ -367,6 +367,71 @@ tr:hover td{
   background:rgba(148,163,184,.06)!important;
 }
 
+/* Subtle hover (no strong contrast, no forced text color) */
+:root{
+  --hover-soft-row: rgba(148,163,184,.04);
+  --hover-soft-cell: rgba(148,163,184,.06);
+}
+
+/* Modals: apply the same soft hover to all tables inside modals */
+.modal-content table tr:hover td,
+#modal-body table tr:hover td,
+#snModalContent table tr:hover td,
+#snModal table tr:hover td{
+  background:var(--hover-soft-row)!important;
+}
+.modal-content table td:hover,
+#modal-body table td:hover,
+#snModalContent table td:hover,
+#snModal table td:hover{
+  background:var(--hover-soft-cell)!important;
+}
+
+/* Debug Comparison: Daily/Station Statistics tables */
+#dailyTable tr:hover,
+#stationTable tr:hover{
+  background:transparent!important; /* override page-level tr:hover background */
+}
+#dailyTable tr:hover td,
+#stationTable tr:hover td{
+  background:var(--hover-soft-row)!important;
+}
+#dailyTable td:hover,
+#stationTable td:hover{
+  background:var(--hover-soft-cell)!important;
+}
+
+/* Daily Test Analysis: Heatmaps + 1-time-pass table */
+#woStationHeatmap table tr:hover,
+#partStationHeatmap table tr:hover,
+#oneTimePassTable table tr:hover{
+  background:transparent!important; /* override page-level tr:hover */
+}
+#woStationHeatmap table tr:hover td,
+#partStationHeatmap table tr:hover td,
+#oneTimePassTable table tr:hover td{
+  background:var(--hover-soft-row)!important;
+}
+#woStationHeatmap table td:hover,
+#partStationHeatmap table td:hover,
+#oneTimePassTable table td:hover{
+  background:var(--hover-soft-cell)!important;
+}
+
+/* Dashboard: 7. Average Duration + 8. Field Descriptions */
+#avgDurationSummary table tr:hover,
+#fieldDescriptionsSummary table tr:hover{
+  background:transparent!important;
+}
+#avgDurationSummary table tr:hover td,
+#fieldDescriptionsSummary table tr:hover td{
+  background:var(--hover-soft-row)!important;
+}
+#avgDurationSummary table td:hover,
+#fieldDescriptionsSummary table td:hover{
+  background:var(--hover-soft-cell)!important;
+}
+
 /* Debug comparison (and any future tables using these classes) */
 .nv-section, .igs-section{
   background:transparent!important;           /* prevent light backgrounds */

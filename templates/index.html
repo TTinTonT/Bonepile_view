@@ -367,7 +367,7 @@
         </div>
         
         <h2>7. AVERAGE DURATION</h2>
-        <div class="summary">
+        <div class="summary" id="avgDurationSummary">
             <table>
                 <tr><th>Metric</th><th>Value</th></tr>
                 <tr><td>Records with BP Duration (from completed dispositions)</td><td>{{ stats.duration_count }}</td></tr>
@@ -382,7 +382,7 @@
         {% endif %}
         
         <h2>8. FIELD DESCRIPTIONS</h2>
-        <div class="summary" style="margin-top: 30px;">
+        <div class="summary" id="fieldDescriptionsSummary" style="margin-top: 30px;">
             <h3 style="margin-bottom: 15px; color: #2c3e50;">Metric Definitions</h3>
             <table style="width: 100%; border-collapse: collapse;">
                 <tr style="background: #3498db; color: white;">
