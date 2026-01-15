@@ -234,11 +234,25 @@
             color: #1565c0;
         }
     </style>
+    <!-- Shared theme (kept last to override page-specific legacy styles) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
+    <div class="page-header">
+        <div class="container">
+            <div class="header-row">
+                <div class="header-left">
+                    <a href="/daily-test-analysis" class="btn btn-secondary">Back</a>
+                    <div>
+                        <h1 style="margin: 0;">Debug Comparison: IGS vs NV</h1>
+                        <div class="subtitle">IGS Test Results Analyzer • Real-time log insights</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     <div class="container">
-        <a href="/daily-test-analysis" class="back-link" title="Return to Daily Test Analysis page">← Back to Daily Test Analysis</a>
-        <h1 title="Compare debug performance between IGS team and NV team. NV Debug: SNs in Bonepile list. IGS Debug: SNs NOT in Bonepile list with at least 1 fail.">Debug Comparison: IGS vs NV</h1>
+        <!-- legacy header removed; using shared page header -->
         
         <div class="filter-section">
             <h3 title="Select date range to analyze debug comparison statistics. The analysis will include all test data from start date to end date (inclusive).">Date Range Filter</h3>

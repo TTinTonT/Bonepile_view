@@ -284,19 +284,35 @@
             margin: 10px 0;
         }
     </style>
+    <!-- Shared theme (kept last to override page-specific legacy styles) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
+    <div class="page-header">
+        <div class="container">
+            <div class="header-row">
+                <div class="header-left">
+                    <a href="/" class="btn btn-secondary">Back</a>
+                    <div>
+                        <h1 style="margin: 0;">Daily Test Analysis</h1>
+                        <div class="subtitle">IGS Test Results Analyzer • Real-time log insights</div>
+                    </div>
+                </div>
+                <div class="nav-actions">
+                    <a href="/debug-comparison" class="btn btn-secondary">Debug Comparison</a>
+                    <a href="/hourly-report" class="btn btn-secondary">Hourly Report</a>
+                </div>
+            </div>
+        </div>
+    </div>
     <div class="container">
-        <a href="/" class="back-link">← Back to Dashboard</a>
-        <h1>Daily Test Analysis</h1>
+        <!-- legacy header removed; using shared page header -->
         
         <div class="filter-section">
             <h3>Date Range Filter</h3>
             <label>Start Date: <input type="date" id="startDate"></label>
             <label>End Date: <input type="date" id="endDate"></label>
             <button onclick="loadAnalysis()">Load Analysis</button>
-            <button id="debugComparisonBtn" onclick="goToDebugComparison()" style="background: #388e3c;">Debug Comparison (IGS vs NV)</button>
-            <button onclick="goToHourlyReport()" style="background: #7b1fa2;">Hourly Report</button>
         </div>
         
         <!-- Info Panel: Understanding Metrics -->
@@ -1227,7 +1243,8 @@
                         const value = row[station] || 0;
                         // Get pass count for this WO at this station
                         const passCount = currentData.wo_statistics.find(w => w.wo === row.wo)?.stations[station]?.pass || 0;
-                        html += `<td style="padding: 8px; border: 1px solid #ddd; background: #ffffff; text-align: center; font-weight: bold;" title="${row.wo} at ${station}: ${passCount} SNs passed">${value.toFixed(1)}%</td>`;
+                        const textColor = getHeatmapColor(value);
+                        html += `<td style="padding: 8px; border: 1px solid var(--border-color); background: transparent; text-align: center; font-weight: 700; color: ${textColor};" title="${row.wo} at ${station}: ${passCount} SNs passed">${value.toFixed(1)}%</td>`;
                     });
                     html += '</tr>';
                 });
@@ -1266,7 +1283,8 @@
                     const value = row[station] || 0;
                     // Get pass count for this part number at this station
                     const passCount = currentData.part_statistics.find(p => p.part_number === row.part_number)?.stations[station]?.pass || 0;
-                    html += `<td style="padding: 8px; border: 1px solid #ddd; background: #ffffff; text-align: center; font-weight: bold;" title="${row.part_number} at ${station}: ${passCount} SNs passed">${value.toFixed(1)}%</td>`;
+                    const textColor = getHeatmapColor(value);
+                    html += `<td style="padding: 8px; border: 1px solid var(--border-color); background: transparent; text-align: center; font-weight: 700; color: ${textColor};" title="${row.part_number} at ${station}: ${passCount} SNs passed">${value.toFixed(1)}%</td>`;
                 });
                 html += '</tr>';
             });
@@ -1276,17 +1294,15 @@
         }
         
         function getHeatmapColor(value) {
-            // Color gradient from red (0%) to green (100%)
-            if (value >= 90) return '#4CAF50'; // Green
-            if (value >= 80) return '#8BC34A'; // Light green
-            if (value >= 70) return '#CDDC39'; // Lime
-            if (value >= 60) return '#FFEB3B'; // Yellow
-            if (value >= 50) return '#FFC107'; // Amber
-            if (value >= 40) return '#FF9800'; // Orange
-            if (value >= 30) return '#FF5722'; // Deep orange
-            if (value >= 20) return '#F44336'; // Red
-            if (value >= 10) return '#D32F2F'; // Dark red
-            return '#B71C1C'; // Very dark red
+            // Text-only heatmap color (green -> dark red) with good contrast on dark UI
+            const v = Number(value || 0);
+            if (!Number.isFinite(v) || v <= 0) {
+                return 'var(--text-secondary)';
+            }
+            const clamped = Math.max(0, Math.min(100, v));
+            const hue = (clamped / 100) * 120; // 0=red, 120=green
+            const lightness = clamped < 20 ? 38 : 46; // slightly darker red for low values
+            return `hsl(${hue}, 85%, ${lightness}%)`;
         }
         
         function updateOneTimePassTable(data) {
@@ -1331,7 +1347,8 @@
                     html += `<td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">${row.wo}</td>`;
                     
                     const value = row.one_time_pass_percentage || 0;
-                    html += `<td style="padding: 8px; border: 1px solid #ddd; background: #ffffff; text-align: center; font-weight: bold;" title="${row.wo}: ${row.one_time_pass} out of ${row.total} SNs (${value.toFixed(1)}%)">${value.toFixed(1)}%</td>`;
+                    const textColor = getHeatmapColor(value);
+                    html += `<td style="padding: 8px; border: 1px solid var(--border-color); background: transparent; text-align: center; font-weight: 700; color: ${textColor};" title="${row.wo}: ${row.one_time_pass} out of ${row.total} SNs (${value.toFixed(1)}%)">${value.toFixed(1)}%</td>`;
                     html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${row.one_time_pass}</td>`;
                     html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${row.total}</td>`;
                     html += '</tr>';

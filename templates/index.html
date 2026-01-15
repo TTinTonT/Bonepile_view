@@ -201,24 +201,37 @@
             vertical-align: top;
         }
     </style>
+    <!-- Shared theme (kept last to override page-specific legacy styles) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
+    <div class="page-header">
+        <div class="container">
+            <div class="header-row">
+                <div class="header-left">
+                    <div>
+                        <h1 style="margin: 0;">VR-TS1 Bonepile Dashboard</h1>
+                        <div class="subtitle">IGS Test Results Analyzer • Real-time log insights</div>
+                    </div>
+                </div>
+                <div class="nav-actions">
+                    {% if show_daily_test_button %}
+                    <a href="/daily-test-analysis" class="btn btn-secondary">Daily Test Analysis</a>
+                    {% endif %}
+                    <a href="/debug-comparison" class="btn btn-secondary">Debug Comparison</a>
+                    <a href="/hourly-report" class="btn btn-secondary">Hourly Report</a>
+                    <a href="/upload" class="btn btn-secondary">Upload</a>
+                </div>
+            </div>
+        </div>
+    </div>
     <div class="container">
-        <h1>📊 VR-TS1 BONEPILE STATISTICS REPORT</h1>
+        <!-- legacy title removed; using shared page header -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <div>
                 <p><strong>Generated:</strong> <span id="generated-time"></span></p>
                 <p><strong>Source:</strong> NV_IGS_VR144_Bonepile.xlsx - Sheet VR-TS1</p>
                 <p><strong>Server IP:</strong> <span style="font-family: monospace; background: #f0f0f0; padding: 2px 8px; border-radius: 3px;">{{ ip }}</span></p>
-            </div>
-            <div>
-                <a href="/upload" style="background: #1976d2; color: white; padding: 10px 20px; border-radius: 4px; text-decoration: none; display: inline-block; margin-right: 10px; font-weight: 500;">Upload New File</a>
-                {% if show_daily_test_button %}
-                <a href="/daily-test-analysis" style="background: #424242; color: white; padding: 10px 20px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 500;">Daily Test Analysis</a>
-                {% else %}
-                <!-- Daily Test Analysis temporarily disabled - running on port 5005 for development -->
-                <!-- <a href="/daily-test-analysis" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; display: inline-block;">📊 Daily Test Analysis</a> -->
-                {% endif %}
             </div>
         </div>
         

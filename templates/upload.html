@@ -112,10 +112,25 @@
             border-left: 6px solid #3498db;
         }
     </style>
+    <!-- Shared theme (kept last to override page-specific legacy styles) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
+    <div class="page-header">
+        <div class="container">
+            <div class="header-row">
+                <div class="header-left">
+                    <a href="/" class="btn btn-secondary">Back</a>
+                    <div>
+                        <h1 style="margin: 0;">Upload Excel Files</h1>
+                        <div class="subtitle">IGS Test Results Analyzer • Real-time log insights</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     <div class="container">
-        <h1>📤 Upload Excel File</h1>
+        <!-- legacy title removed; using shared page header -->
         
         {% with messages = get_flashed_messages() %}
             {% if messages %}
@@ -155,7 +170,7 @@
             <button type="submit">Upload and Analyze</button>
         </form>
         
-        <a href="/" class="back-link">← Back to Dashboard</a>
+        <!-- back link removed; use header Back button -->
     </div>
 </body>
 </html>
