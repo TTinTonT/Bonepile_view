@@ -71,6 +71,83 @@
             color: var(--text-secondary);
             margin-top: 6px;
         }
+
+        /* Header nav as a "tab bar" / segmented control (matching other pages) */
+        .nav-actions{
+            display:flex;
+            flex-wrap:wrap;
+            gap:0;
+            justify-content:flex-end;
+            background:rgba(15,23,42,.35);
+            border:1px solid rgba(51,65,85,.9);
+            border-radius:14px;
+            padding:6px;
+            box-shadow:var(--shadow-sm);
+        }
+        .nav-actions a{ text-decoration:none; }
+        .nav-actions .btn{
+            background:transparent!important;
+            color:var(--text-secondary)!important;
+            border:1px solid rgba(51,65,85,.9)!important;
+            border-radius:0!important;
+            padding:10px 14px!important;
+            font-weight:600!important;
+            box-shadow:none!important;
+        }
+        .nav-actions .btn:hover{
+            background:rgba(255,255,255,.06)!important;
+            color:var(--text-primary)!important;
+        }
+        .nav-actions .btn:not(:first-child){ margin-left:-1px; }
+        .nav-actions .btn:first-child{
+            border-top-left-radius:10px!important;
+            border-bottom-left-radius:10px!important;
+        }
+        .nav-actions .btn:last-child{
+            border-top-right-radius:10px!important;
+            border-bottom-right-radius:10px!important;
+        }
+        .nav-actions .btn[aria-current="page"]{
+            background:var(--bg-card-hover)!important;
+            color:var(--text-primary)!important;
+            border-color:rgba(16,185,129,.85)!important;
+            box-shadow:0 0 0 3px rgba(16,185,129,.10)!important;
+        }
+
+        .btn-back{
+            display:inline-flex!important;
+            align-items:center!important;
+            gap:10px!important;
+            padding:10px 16px!important;
+            font-size:14px!important;
+            line-height:1!important;
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-color) !important;
+            border-radius: 10px !important;
+            box-shadow: var(--shadow-sm) !important;
+        }
+        .btn-back:hover{
+            background: var(--bg-card-hover) !important;
+            border-color: var(--text-secondary) !important;
+        }
+        .btn-back-icon{
+            display:inline-block;
+            font-size:16px;
+            line-height:1;
+            opacity:.95;
+        }
+
+        .main-container{
+            margin-top:-16px!important;
+            padding-top:28px!important;
+            background:rgba(15,23,42,.35)!important;
+            border:1px solid rgba(51,65,85,.9)!important;
+            border-radius:14px!important;
+            box-shadow:var(--shadow-sm)!important;
+            position:relative;
+            z-index:1;
+        }
         
         .control-panel {
             background: var(--bg-card);
@@ -548,19 +625,28 @@
     <!-- Page Header -->
     <div class="page-header">
         <div class="container">
-            <div style="display: flex; align-items: center; gap: 15px;">
-                <button onclick="goBack()" class="btn btn-secondary" style="background: #6c757d; border: none; padding: 8px 16px; font-size: 0.85rem;">
-                    <i class="fas fa-arrow-left me-1"></i>Back
-                </button>
-                <div>
-                    <h1>IGS L10 Summary</h1>
-                    <div class="subtitle">IGS Test Results Analyzer • Real-time log insights</div>
+            <div class="header-row" style="display: flex; align-items: center; justify-content: space-between; gap: 15px;">
+                <div class="header-left" style="display: flex; align-items: center; gap: 15px;">
+                    <button onclick="goBack()" class="btn-back">
+                        <span class="btn-back-icon">←</span>Back
+                    </button>
+                    <div>
+                        <h1>IGS L10 Summary</h1>
+                        <div class="subtitle">IGS Test Results Analyzer • Real-time log insights</div>
+                    </div>
+                </div>
+                <div class="nav-actions">
+                    <a href="/" class="btn btn-secondary">Dashboard</a>
+                    <a href="/daily-test-analysis" class="btn btn-secondary">Daily Test Analysis</a>
+                    <a href="/debug-comparison" class="btn btn-secondary">Debug Comparison</a>
+                    <a href="/hourly-report" class="btn btn-secondary" aria-current="page">Hourly Report</a>
+                    <a href="/upload" class="btn btn-secondary">Upload</a>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="container">
+    <div class="container main-container">
         <!-- Control Panel -->
         <div class="control-panel">
             <div class="row align-items-end g-3">

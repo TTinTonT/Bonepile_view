@@ -120,16 +120,23 @@
         <div class="container">
             <div class="header-row">
                 <div class="header-left">
-                    <a href="/" class="btn btn-secondary">Back</a>
+                    <a href="/" class="btn btn-secondary btn-back"><span class="btn-back-icon">←</span>Back</a>
                     <div>
                         <h1 style="margin: 0;">Upload Excel Files</h1>
                         <div class="subtitle">IGS Test Results Analyzer • Real-time log insights</div>
                     </div>
                 </div>
+                <div class="nav-actions">
+                    <a href="/" class="btn btn-secondary">Dashboard</a>
+                    <a href="/daily-test-analysis" class="btn btn-secondary">Daily Test Analysis</a>
+                    <a href="/debug-comparison" class="btn btn-secondary">Debug Comparison</a>
+                    <a href="/hourly-report" class="btn btn-secondary">Hourly Report</a>
+                    <a href="/upload" class="btn btn-secondary" aria-current="page">Upload</a>
+                </div>
             </div>
         </div>
     </div>
-    <div class="container">
+    <div class="container main-container">
         <!-- legacy title removed; using shared page header -->
         
         {% with messages = get_flashed_messages() %}

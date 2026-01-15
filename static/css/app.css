@@ -2,6 +2,8 @@
 :root{
   --color-pass:#10b981;
   --color-fail:#ef4444;
+  --color-warning:#fbbf24;
+  --color-info:#3b82f6;
   --bg-dark:#0f172a;
   --bg-card:#1e293b;
   --bg-card-hover:#334155;
@@ -42,8 +44,14 @@ body{
 .page-header{
   background:linear-gradient(135deg,#1e293b 0%,#0f172a 100%);
   border-bottom:1px solid var(--border-color);
-  padding:18px 0;
-  margin-bottom:24px;
+  padding:24px 0;
+  margin-bottom:32px;
+}
+.page-header h1{
+  font-size:2.25rem;
+  margin:0;
+  font-weight:700!important;
+  letter-spacing:-0.025em;
 }
 .header-row{
   display:flex;
@@ -56,10 +64,31 @@ body{
   align-items:center;
   gap:14px;
 }
+.btn-back{
+  display:inline-flex!important;
+  align-items:center!important;
+  gap:10px!important;
+  padding:10px 16px!important;
+  font-size:14px!important;
+  line-height:1!important;
+  text-decoration:none!important;
+}
+.btn-back:hover,
+.btn-back:focus,
+.btn-back:active{
+  text-decoration:none!important;
+}
+.btn-back-icon{
+  display:inline-block;
+  font-size:16px;
+  line-height:1;
+  opacity:.95;
+  text-decoration:none!important;
+}
 .subtitle{
   color:var(--text-secondary);
-  font-size:.95rem;
-  margin-top:4px;
+  font-size:.875rem;
+  margin-top:6px;
 }
 .nav-actions{
   display:flex;
@@ -68,6 +97,66 @@ body{
 }
 .nav-actions a{
   text-decoration:none;
+}
+
+/* Header nav as a "tab bar" / segmented control */
+.nav-actions{
+  flex-wrap:wrap;
+  gap:0;
+  background:rgba(15,23,42,.35);
+  border:1px solid rgba(51,65,85,.9);
+  border-radius:14px;
+  padding:6px 6px 0;
+  box-shadow:var(--shadow-sm);
+  position:relative;
+  z-index:5;
+  border-bottom:0;
+}
+.nav-actions .btn{
+  background:transparent!important;
+  color:var(--text-secondary)!important;
+  border:1px solid rgba(51,65,85,.9)!important;
+  border-radius:0!important;
+  padding:12px 18px!important;
+  font-size:15px!important;
+  box-shadow:none!important;
+  transform:none!important;
+  border-bottom:1px solid rgba(51,65,85,.9)!important;
+}
+.nav-actions .btn:hover{
+  background:rgba(255,255,255,.06)!important; /* brighten slightly, no hue shift */
+  color:var(--text-primary)!important;
+}
+.nav-actions .btn:not(:first-child){
+  margin-left:-1px; /* merge borders so it looks like one control */
+}
+.nav-actions .btn:first-child{
+  border-top-left-radius:10px!important;
+  border-bottom-left-radius:10px!important;
+}
+.nav-actions .btn:last-child{
+  border-top-right-radius:10px!important;
+  border-bottom-right-radius:10px!important;
+}
+.nav-actions .btn[aria-current="page"],
+.nav-actions .btn.active{
+  background:var(--bg-card-hover)!important;
+  color:var(--text-primary)!important;
+  border-color:rgba(16,185,129,.85)!important;
+  box-shadow:0 0 0 3px rgba(16,185,129,.10)!important;
+  border-bottom-color:transparent!important; /* visually connects to content panel below */
+}
+
+/* Main content "panel" that visually connects to the tab bar */
+.main-container{
+  margin-top:-16px!important; /* pull up to touch the tabs */
+  padding-top:28px!important;
+  background:rgba(15,23,42,.35)!important;
+  border:1px solid rgba(51,65,85,.9)!important;
+  border-radius:14px!important;
+  box-shadow:var(--shadow-sm)!important;
+  position:relative;
+  z-index:1;
 }
 
 /* Headings */
@@ -216,6 +305,47 @@ button:active,
   color:var(--text-primary)!important;
 }
 
+/* Value color conventions (PASS/FAIL/WARNING/DEFAULT) */
+.text-pass{ color:var(--color-pass)!important; font-weight:800!important; }
+.text-fail{ color:var(--color-fail)!important; font-weight:800!important; }
+.text-warning{ color:var(--color-warning)!important; font-weight:800!important; }
+.text-info{ color:var(--color-info)!important; font-weight:800!important; }
+
+/* Apply to existing structures without changing HTML */
+.metric-box.success .metric-value,
+.metric-box.success .value,
+.summary-card-value.pass,
+.metric-value.pass,
+#totalPass,
+#nvPass, #igsPass,
+#nvPassPct, #igsPassPct{
+  color:var(--color-pass)!important;
+  font-weight:800!important;
+}
+
+.metric-box.warning .metric-value,
+.metric-box.warning .value,
+#totalFail,
+#nvFail, #igsFail,
+#nvFailPct, #igsFailPct{
+  color:var(--color-fail)!important;
+  font-weight:800!important;
+}
+
+/* warning buckets used on index/current dispositions */
+#current-waiting,
+#current-waiting-material,
+#stat-pending-dispositions{
+  color:var(--color-warning)!important;
+  font-weight:800!important;
+}
+
+/* neutral/default */
+.summary-card-value.neutral,
+.metric-value.neutral{
+  color:var(--text-primary)!important;
+}
+
 /* Tables */
 table{
   background:var(--bg-card)!important;
@@ -314,10 +444,10 @@ div[style*="background:#e3f2fd"]{
   color:var(--text-primary)!important;
 }
 
-div[style*=\"background: #ffebee\"],
-div[style*=\"background:#ffebee\"],
-div[style*=\"background: #f8d7da\"],
-div[style*=\"background:#f8d7da\"]{
+div[style*="background: #ffebee"],
+div[style*="background:#ffebee"],
+div[style*="background: #f8d7da"],
+div[style*="background:#f8d7da"]{
   background:rgba(239,68,68,.14)!important;
   color:var(--text-primary)!important;
 }
