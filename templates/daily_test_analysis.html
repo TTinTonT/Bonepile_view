@@ -346,7 +346,7 @@
                     <span style="margin-right: 8px;">ℹ️</span>
                     Understanding Metrics
                 </h3>
-                <span id="infoPanelToggle" style="font-size: 18px; transition: transform 0.3s;">▲</span>
+                <span id="infoPanelToggle" style="font-size: 18px; transition: transform 0.3s; transform: rotate(180deg);">▲</span>
             </div>
             <div id="infoPanelContent" style="padding: 15px; display: none;">
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
@@ -519,15 +519,9 @@
         function toggleInfoPanel() {
             const content = document.getElementById('infoPanelContent');
             const toggle = document.getElementById('infoPanelToggle');
-            if (content.style.display === 'none') {
-                content.style.display = 'block';
-                toggle.textContent = '▼';
-                toggle.style.transform = 'rotate(0deg)';
-            } else {
-                content.style.display = 'none';
-                toggle.textContent = '▲';
-                toggle.style.transform = 'rotate(180deg)';
-            }
+            const isOpen = content.style.display !== 'none';
+            content.style.display = isOpen ? 'none' : 'block';
+            toggle.style.transform = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
         }
         
         // Initialize info panel as collapsed on page load
@@ -537,7 +531,6 @@
             if (content) {
                 content.style.display = 'none';
                 if (toggle) {
-                    toggle.textContent = '▲';
                     toggle.style.transform = 'rotate(180deg)';
                 }
             }

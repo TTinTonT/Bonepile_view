@@ -175,6 +175,24 @@
             Server IP: <strong>{{ ip }}</strong><br>
             Please upload Excel files (.xlsx or .xls). Both files are optional but recommended for full functionality.
         </div>
+
+        <!-- Metric Understanding (Upload) -->
+        <div class="info-panel" style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; margin-bottom: 20px;">
+            <div onclick="toggleInfoPanel()" style="padding: 12px 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #e9ecef; border-radius: 5px 5px 0 0;">
+                <h3 style="margin: 0; color: #495057;">
+                    <span style="margin-right: 8px;">ℹ️</span>
+                    Metric Understanding
+                </h3>
+                <span id="infoPanelToggle" style="font-size: 18px; transition: transform 0.3s; transform: rotate(180deg);">▲</span>
+            </div>
+            <div id="infoPanelContent" style="padding: 15px; display: none; color: var(--text-secondary); line-height: 1.6;">
+                <ul style="margin: 0; padding-left: 20px;">
+                    <li><strong style="color: var(--text-primary);">NV_IGS_VR144_Bonepile.xlsx</strong>: main data source (uses sheet <strong>VR-TS1</strong>) for Dashboard / Daily Test Analysis / Debug Comparison / Hourly Report.</li>
+                    <li><strong style="color: var(--text-primary);">FA_Work_Log.xlsx</strong>: optional mapping for <strong>WO</strong> (uses sheet <strong>Log</strong>, Column B = SN, Column C = WO). Enables WO grouping/filters on some pages.</li>
+                    <li>After upload, metrics like <strong>SN Count</strong> (unique trays) and station/group statistics are derived from these files.</li>
+                </ul>
+            </div>
+        </div>
         
         <form method="POST" enctype="multipart/form-data">
             <div class="upload-area" style="margin-bottom: 20px;">
@@ -200,6 +218,16 @@
         
         <!-- back link removed; use header Back button -->
     </div>
+    <script>
+        function toggleInfoPanel() {
+            const content = document.getElementById('infoPanelContent');
+            const toggle = document.getElementById('infoPanelToggle');
+            if (!content || !toggle) return;
+            const isOpen = content.style.display !== 'none';
+            content.style.display = isOpen ? 'none' : 'block';
+            toggle.style.transform = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+        }
+    </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>

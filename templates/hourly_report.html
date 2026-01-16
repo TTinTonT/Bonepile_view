@@ -75,7 +75,7 @@
         .container {
             max-width: 1400px;
             margin: 0 auto;
-            padding: 0 24px;
+            padding: 24px;
         }
         
         .page-header {
@@ -100,6 +100,29 @@
             font-size: 0.875rem;
             color: var(--text-secondary);
             margin-top: 6px;
+        }
+
+        /* Make the Metric Understanding panel match Dashboard in dark theme */
+        html[data-theme="dark"] .metric-understanding-panel{
+            background: var(--bg-card) !important;
+            border-color: var(--border-color) !important;
+        }
+        html[data-theme="dark"] .metric-understanding-header{
+            background: var(--bg-card-hover) !important;
+        }
+        html[data-theme="dark"] .metric-understanding-panel h3{
+            color: var(--text-primary) !important;
+        }
+        html[data-theme="dark"] .metric-understanding-panel h4{
+            color: var(--text-primary) !important;
+        }
+        html[data-theme="dark"] .metric-understanding-panel ul{
+            color: var(--text-secondary) !important;
+        }
+        html[data-theme="dark"] .metric-understanding-tip{
+            background: rgba(255,193,7,.12) !important;
+            border-left-color: rgba(255,193,7,.65) !important;
+            color: var(--text-primary) !important;
         }
 
         .header-right{
@@ -289,7 +312,9 @@
             outline: none;
         }
         
-        .summary-cards {
+        /* Metrics UI: align with other pages (metric-box/value/metric-label) */
+        .summary-cards,
+        .summary-metrics {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 16px;
@@ -297,12 +322,14 @@
             transition: opacity 0.3s ease;
         }
         
-        .summary-cards.disabled {
+        .summary-cards.disabled,
+        .summary-metrics.disabled {
             opacity: 0.4;
             pointer-events: none;
         }
         
-        .summary-card {
+        .summary-card,
+        .metric-box {
             background: var(--bg-card);
             border-radius: 12px;
             padding: 20px;
@@ -313,42 +340,54 @@
             box-shadow: var(--shadow-sm);
         }
         
-        .summary-card:hover {
+        .summary-card:hover,
+        .metric-box:hover {
             background: var(--bg-card-hover);
             border-color: var(--color-pass);
             transform: translateY(-2px);
             box-shadow: var(--shadow-lg);
         }
         
-        .summary-card-label {
+        .summary-card-label,
+        .metric-box h3 {
             font-size: 0.75rem;
             color: var(--text-secondary);
             text-transform: uppercase;
             letter-spacing: 0.05em;
             margin-bottom: 8px;
             font-weight: 600;
+            margin-top: 0;
         }
         
-        .summary-card-value {
+        .summary-card-value,
+        .metric-value,
+        .value {
             font-size: 2rem;
             font-weight: 700;
             margin: 8px 0;
             line-height: 1.2;
         }
         
-        .summary-card-value.pass {
+        .summary-card-value.pass,
+        .metric-value.pass,
+        .value.pass {
             color: var(--color-pass);
         }
         
-        .summary-card-value.fail {
+        .summary-card-value.fail,
+        .metric-value.fail,
+        .value.fail {
             color: var(--color-fail);
         }
         
-        .summary-card-value.neutral {
+        .summary-card-value.neutral,
+        .metric-value.neutral,
+        .value.neutral {
             color: var(--text-primary);
         }
         
-        .summary-card-percentage {
+        .summary-card-percentage,
+        .metric-label {
             font-size: 0.75rem;
             color: var(--text-secondary);
             margin-top: 6px;
@@ -384,7 +423,8 @@
             font-size: 1rem;
         }
         
-        .stats-grid {
+        .stats-grid,
+        .summary-metrics {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 16px;
@@ -392,7 +432,8 @@
             transition: opacity 0.3s ease;
         }
         
-        .stats-grid.disabled {
+        .stats-grid.disabled,
+        .summary-metrics.disabled {
             opacity: 0.4;
             pointer-events: none;
         }
@@ -786,8 +827,48 @@
             </div>
         </div>
 
+        <!-- Metric Understanding: wrap in a control-panel card (same outline as the date/time panel above) -->
+        <div class="control-panel" style="padding: 24px;">
+            <div class="info-panel metric-understanding-panel" style="background: #f8f9fa; border: 0; border-radius: 12px; margin: 0;">
+                <div class="metric-understanding-header" onclick="toggleInfoPanel()" style="padding: 12px 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #e9ecef; border-radius: 12px 12px 0 0;">
+                    <h3 style="margin: 0; color: #495057; font-size: 16px; font-weight: 700;">
+                        <span style="margin-right: 8px;">ℹ️</span>
+                        Metric Understanding
+                    </h3>
+                    <span id="infoPanelToggle" style="font-size: 18px; transition: transform 0.3s; transform: rotate(180deg);">▲</span>
+                </div>
+                <div id="infoPanelContent" style="padding: 15px; display: none;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div>
+                            <h4 style="color: #1976d2; margin-bottom: 8px; margin-top: 0; font-size: 1em;">
+                                🕒 Time Range
+                            </h4>
+                            <ul style="margin: 0; padding-left: 20px; color: #495057; line-height: 1.6;">
+                                <li>Uses <strong>Start Date &amp; Time</strong> → <strong>End Date &amp; Time</strong> from the picker</li>
+                                <li>Click <strong>Analyze</strong> to load cached report data</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <h4 style="color: #f57c00; margin-bottom: 8px; margin-top: 0; font-size: 1em;">
+                                📦 Summary Cards
+                            </h4>
+                            <ul style="margin: 0; padding-left: 20px; color: #495057; line-height: 1.6;">
+                                <li><strong>Total Tested</strong>: total SNs tested in the selected range</li>
+                                <li><strong>Passed</strong>: SNs with PASS status in the selected range</li>
+                                <li><strong>Bonepile</strong>: SNs that exist in Bonepile list</li>
+                                <li><strong>Pass Rate</strong>: percentage of passed SNs</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="metric-understanding-tip" style="margin-top: 15px; padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 3px;">
+                        <strong>💡 Tip:</strong> Click any card to open the SN list modal (Part Numbers, Stations, PASS/FAIL).
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Summary Cards -->
-        <div class="summary-cards disabled" id="summaryCards">
+        <div class="summary-metrics disabled" id="summaryCards">
             <!-- Will be populated by JavaScript -->
         </div>
 
@@ -798,7 +879,7 @@
                 Overall (All)
             </h3>
         </div>
-        <div class="stats-grid disabled" id="allStats">
+        <div class="summary-metrics disabled" id="allStats">
             <!-- Will be populated by JavaScript -->
         </div>
 
@@ -809,7 +890,7 @@
                 Bonepile (NV Debug)
             </h3>
         </div>
-        <div class="stats-grid disabled" id="bonepileStats">
+        <div class="summary-metrics disabled" id="bonepileStats">
             <!-- Will be populated by JavaScript -->
         </div>
 
@@ -820,7 +901,7 @@
                 IGS Debug
             </h3>
         </div>
-        <div class="stats-grid disabled" id="igsStats">
+        <div class="summary-metrics disabled" id="igsStats">
             <!-- Will be populated by JavaScript -->
         </div>
     </div>
@@ -845,6 +926,16 @@
         </div>
     </div>
 
+    <script>
+        function toggleInfoPanel() {
+            const content = document.getElementById('infoPanelContent');
+            const toggle = document.getElementById('infoPanelToggle');
+            if (!content || !toggle) return;
+            const isOpen = content.style.display !== 'none';
+            content.style.display = isOpen ? 'none' : 'block';
+            toggle.style.transform = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+        }
+    </script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 
     <!-- Bootstrap JS -->
@@ -888,12 +979,13 @@
             } else if (label.toLowerCase() === 'bonepile') {
                 type = 'total';  // Show all for bonepile summary
             }
-            
+
             return `
-                <div class="summary-card" onclick="showSNList('all', 'all', '${type}')">
-                    <div class="summary-card-label">${label}</div>
-                    <div class="summary-card-value ${valueClass}">${value.toLocaleString()}</div>
-                    ${percentage !== null ? `<div class="summary-card-percentage">${percentage}%</div>` : ''}
+                <div class="metric-box" onclick="showSNList('all', 'all', '${type}')" style="cursor:pointer;">
+                    <h3>${label}</h3>
+                    <div class="value ${valueClass}">${(typeof value === 'number') ? value.toLocaleString() : value}</div>
+                    ${percentage !== null ? `<div class="metric-label">${percentage}%</div>` : ''}
+                    <div class="metric-label" style="font-size: 11px; opacity: 0.8;">Click to view list</div>
                 </div>
             `;
         }
@@ -906,18 +998,14 @@
             } else if (type === 'fail') {
                 valueColorClass = 'fail';
             }
-            
-            const displayValue = type === 'pass_rate' ? `${value.toFixed(2)}%` : value.toLocaleString();
-            
+
+            const displayValue = type === 'pass_rate' ? `${Number(value || 0).toFixed(2)}%` : Number(value || 0).toLocaleString();
+
             return `
-                <div class="metric-card" 
-                     onclick="showSNList('${category}', '${subCategory}', '${type}')">
-                    <div class="metric-icon">
-                        <i class="${getIcon(type)}"></i>
-                    </div>
-                    <div class="metric-value ${valueColorClass}">${displayValue}</div>
-                    <div class="metric-label">${label}</div>
-                    ${type !== 'pass_rate' ? `<div class="metric-percentage">Pass Rate: ${passRate.toFixed(2)}%</div>` : ''}
+                <div class="metric-box" onclick="showSNList('${category}', '${subCategory}', '${type}')" style="cursor:pointer;">
+                    <h3>${label}</h3>
+                    <div class="value ${valueColorClass}">${displayValue}</div>
+                    ${type !== 'pass_rate' ? `<div class="metric-label">Pass Rate: ${Number(passRate || 0).toFixed(2)}%</div>` : `<div class="metric-label">Pass Rate</div>`}
                 </div>
             `;
         }

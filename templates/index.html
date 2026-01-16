@@ -256,6 +256,82 @@
                 <p><strong>Server IP:</strong> <span style="font-family: monospace; background: #f0f0f0; padding: 2px 8px; border-radius: 3px;">{{ ip }}</span></p>
             </div>
         </div>
+
+        <!-- Metric Understanding (Dashboard) -->
+        <div class="info-panel" style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; margin-bottom: 20px;">
+            <div onclick="toggleInfoPanel()" style="padding: 12px 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #e9ecef; border-radius: 5px 5px 0 0;">
+                <h3 style="margin: 0; color: #495057;">
+                    <span style="margin-right: 8px;">ℹ️</span>
+                    Metric Understanding
+                </h3>
+                <span id="infoPanelToggle" style="font-size: 18px; transition: transform 0.3s; transform: rotate(180deg);">▲</span>
+            </div>
+            <div id="infoPanelContent" style="padding: 15px; display: none;">
+                <h3 style="margin: 0 0 12px 0; color: var(--text-primary);">Metric Definitions</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr style="background: var(--table-th-bg); color: var(--text-primary);">
+                        <th style="padding: 12px; text-align: left; width: 220px; border: 1px solid var(--border-color);">Field</th>
+                        <th style="padding: 12px; text-align: left; border: 1px solid var(--border-color);">Description</th>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Total Trays</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Count of unique Serial Numbers (SN) in format 183XXXXXXXX (13 digits). Each unique SN represents one tray in the Bonepile.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Fail Records</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Total number of rows where Result column = "FAIL". This counts all fail records, including duplicates. The number in parentheses shows unique SN count.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Pass Records</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Total number of rows where Result column = "ALL PASS". This counts all pass records, including duplicates. The number in parentheses shows unique SN count.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Total Dispositions</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Total number of dispositions parsed from NV Disposition column (Column H). Each date format (MM/DD: description) counts as one disposition. Only rows with IGS Action (Column M) having a value are counted.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Completed Dispositions</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Dispositions are considered completed when: (1) Latest IGS Action date &gt;= Latest NV Disposition date, OR (2) IGS Action is empty but IGS Status contains "waiting for NV disposition" or Result is PASS/ALL PASS, OR (3) Only IGS Action date exists (no NV Disposition date).</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Pending Dispositions</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Dispositions that are not yet completed. This occurs when: Latest IGS Action date &lt; Latest NV Disposition date AND Result is still "FAIL", OR IGS Action is empty without completion indicators.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Current Dispositions - Completed</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Rows where Result = "FAIL" and PIC = "IGS", and IGS Status does NOT contain "testing" or "waiting" (except "waiting for disposition"). These represent dispositions that are currently being processed and are completed.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Current Dispositions - Waiting</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Rows where Result = "FAIL" and PIC = "IGS", and IGS Status contains "testing" or "waiting" (but NOT "waiting for disposition"). These are dispositions waiting for action.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Current Dispositions - Waiting for Material</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Rows where Result = "FAIL" and PIC = "IGS", and IGS Status contains "waiting for material", "waiting for strata", or "waiting for cx9". These dispositions are waiting for material/components.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">WO Statistics</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Statistics grouped by Work Order (WO). WO is mapped from FA_Work_Log.xlsx file. Shows tray pass/fail counts and disposition statistics for each WO. Chart updates based on date range and WO filters.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Avg per Day</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Average number of dispositions per day within the selected date range. Calculated as: Total Dispositions / Number of Days in the filtered period. If date filters are provided, uses the filter date range; otherwise uses min/max dates from dispositions.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Avg per Week</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Average number of dispositions per week within the selected date range. Calculated as: Total Dispositions / Number of Weeks in the filtered period. Number of weeks = Number of Days / 7.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">In Process Dispositions</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Rows where IGS Status contains "waiting", "testing", "in process", or "in progress". These are dispositions that are currently being processed or tested. The number in parentheses shows unique SN count.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Waiting for Material</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Rows where IGS Status contains "waiting for material", "waiting for strata", or "waiting for cx9". These dispositions are waiting for material or components to proceed. The number in parentheses shows unique SN count.</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
         
         {% if error %}
         <div class="note-box" style="background: #f8d7da; border-left-color: #dc3545;">
@@ -402,72 +478,7 @@
         {% endif %}
         {% endif %}
         
-        <h2>8. FIELD DESCRIPTIONS</h2>
-        <div class="summary" id="fieldDescriptionsSummary" style="margin-top: 30px;">
-            <h3 style="margin-bottom: 15px; color: #2c3e50;">Metric Definitions</h3>
-            <table style="width: 100%; border-collapse: collapse;">
-                <tr style="background: #3498db; color: white;">
-                    <th style="padding: 12px; text-align: left; width: 200px;">Field</th>
-                    <th style="padding: 12px; text-align: left;">Description</th>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Total Trays</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Count of unique Serial Numbers (SN) in format 183XXXXXXXX (13 digits). Each unique SN represents one tray in the Bonepile.</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Fail Records</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Total number of rows where Result column = "FAIL". This counts all fail records, including duplicates. The number in parentheses shows unique SN count.</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Pass Records</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Total number of rows where Result column = "ALL PASS". This counts all pass records, including duplicates. The number in parentheses shows unique SN count.</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Total Dispositions</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Total number of dispositions parsed from NV Disposition column (Column H). Each date format (MM/DD: description) counts as one disposition. Only rows with IGS Action (Column M) having a value are counted.</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Completed Dispositions</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Dispositions are considered completed when: (1) Latest IGS Action date >= Latest NV Disposition date, OR (2) IGS Action is empty but IGS Status contains "waiting for NV disposition" or Result is PASS/ALL PASS, OR (3) Only IGS Action date exists (no NV Disposition date).</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Pending Dispositions</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Dispositions that are not yet completed. This occurs when: Latest IGS Action date < Latest NV Disposition date AND Result is still "FAIL", OR IGS Action is empty without completion indicators.</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Current Dispositions - Completed</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Rows where Result = "FAIL" and PIC = "IGS", and IGS Status does NOT contain "testing" or "waiting" (except "waiting for disposition"). These represent dispositions that are currently being processed and are completed.</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Current Dispositions - Waiting</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Rows where Result = "FAIL" and PIC = "IGS", and IGS Status contains "testing" or "waiting" (but NOT "waiting for disposition"). These are dispositions waiting for action.</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Current Dispositions - Waiting for Material</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Rows where Result = "FAIL" and PIC = "IGS", and IGS Status contains "waiting for material", "waiting for strata", or "waiting for cx9". These dispositions are waiting for material/components.</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">WO Statistics</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Statistics grouped by Work Order (WO). WO is mapped from FA_Work_Log.xlsx file. Shows tray pass/fail counts and disposition statistics for each WO. Chart updates based on date range and WO filters.</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Avg per Day</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Average number of dispositions per day within the selected date range. Calculated as: Total Dispositions / Number of Days in the filtered period. If date filters are provided, uses the filter date range; otherwise uses min/max dates from dispositions.</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Avg per Week</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Average number of dispositions per week within the selected date range. Calculated as: Total Dispositions / Number of Weeks in the filtered period. Number of weeks = Number of Days / 7.</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">In Process Dispositions</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Rows where IGS Status contains "waiting", "testing", "in process", or "in progress". These are dispositions that are currently being processed or tested. The number in parentheses shows unique SN count.</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Waiting for Material</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">Rows where IGS Status contains "waiting for material", "waiting for strata", or "waiting for cx9". These dispositions are waiting for material or components to proceed. The number in parentheses shows unique SN count.</td>
-                </tr>
-            </table>
-        </div>
+        <!-- 8. FIELD DESCRIPTIONS removed (moved into Metric Understanding panel above) -->
     </div>
     
     <!-- Modal -->
@@ -506,6 +517,15 @@
         // Cache management functions
         function getCacheKey(category, type) {
             return `sn_cache_${category}_${type || 'default'}`;
+        }
+
+        function toggleInfoPanel() {
+            const content = document.getElementById('infoPanelContent');
+            const toggle = document.getElementById('infoPanelToggle');
+            if (!content || !toggle) return;
+            const isOpen = content.style.display !== 'none';
+            content.style.display = isOpen ? 'none' : 'block';
+            toggle.style.transform = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
         }
         
         function saveToCache(key, data) {
