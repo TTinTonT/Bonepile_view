@@ -284,6 +284,17 @@
             margin: 10px 0;
         }
     </style>
+    <script>
+        (function () {
+            try {
+                var t = localStorage.getItem('theme');
+                if (t !== 'light' && t !== 'dark') {
+                    t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+                }
+                document.documentElement.setAttribute('data-theme', t);
+            } catch (e) {}
+        })();
+    </script>
     <!-- Shared theme (kept last to override page-specific legacy styles) -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
@@ -304,6 +315,7 @@
                     <a href="/debug-comparison" class="btn btn-secondary">Debug Comparison</a>
                     <a href="/hourly-report" class="btn btn-secondary">Hourly Report</a>
                     <a href="/upload" class="btn btn-secondary">Upload</a>
+                    <button type="button" class="btn btn-secondary theme-toggle" id="themeToggle" aria-label="Toggle theme"></button>
                 </div>
             </div>
         </div>
@@ -1226,10 +1238,10 @@
             let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
             
             // Header
-            html += '<tr><th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; position: sticky; left: 0; z-index: 10;">Part Number</th>';
-            html += '<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; position: sticky; left: 100px; z-index: 10;">WO</th>';
+            html += '<tr><th style="padding: 8px; background: var(--table-th-bg); color: var(--text-primary); border: 1px solid var(--border-color); position: sticky; left: 0; z-index: 10;">Part Number</th>';
+            html += '<th style="padding: 8px; background: var(--table-th-bg); color: var(--text-primary); border: 1px solid var(--border-color); position: sticky; left: 100px; z-index: 10;">WO</th>';
             stations.forEach(station => {
-                html += `<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; text-align: center; min-width: 80px;">${station}</th>`;
+                html += `<th style="padding: 8px; background: var(--table-th-bg); color: var(--text-primary); border: 1px solid var(--border-color); text-align: center; min-width: 80px;">${station}</th>`;
             });
             html += '</tr>';
             
@@ -1239,9 +1251,9 @@
                 rows.forEach((row, idx) => {
                     html += '<tr>';
                     if (idx === 0) {
-                        html += `<td rowspan="${rows.length}" style="padding: 8px; border: 1px solid #ddd; background: #f0f0f0; font-weight: bold; vertical-align: middle; text-align: center;">${part}</td>`;
+                        html += `<td rowspan="${rows.length}" style="padding: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-weight: bold; vertical-align: middle; text-align: center;">${part}</td>`;
                     }
-                    html += `<td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">${row.wo}</td>`;
+                    html += `<td style="padding: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-weight: bold;">${row.wo}</td>`;
                     stations.forEach(station => {
                         const value = row[station] || 0;
                         // Get pass count for this WO at this station
@@ -1272,16 +1284,16 @@
             let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
             
             // Header
-            html += '<tr><th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; position: sticky; left: 0; z-index: 10;">Part Number</th>';
+            html += '<tr><th style="padding: 8px; background: var(--table-th-bg); color: var(--text-primary); border: 1px solid var(--border-color); position: sticky; left: 0; z-index: 10;">Part Number</th>';
             stations.forEach(station => {
-                html += `<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; text-align: center; min-width: 80px;">${station}</th>`;
+                html += `<th style="padding: 8px; background: var(--table-th-bg); color: var(--text-primary); border: 1px solid var(--border-color); text-align: center; min-width: 80px;">${station}</th>`;
             });
             html += '</tr>';
             
             // Rows
             heatmapData.forEach(row => {
                 html += '<tr>';
-                html += `<td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">${row.part_number}</td>`;
+                html += `<td style="padding: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-weight: bold;">${row.part_number}</td>`;
                 stations.forEach(station => {
                     const value = row[station] || 0;
                     // Get pass count for this part number at this station
@@ -1332,11 +1344,11 @@
             let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
             
             // Header
-            html += '<tr><th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; position: sticky; left: 0; z-index: 10;">Part Number</th>';
-            html += '<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; position: sticky; left: 100px; z-index: 10;">WO</th>';
-            html += '<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; text-align: center; min-width: 120px;">1 Time Pass %</th>';
-            html += '<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; text-align: center; min-width: 100px;">1 Time Pass</th>';
-            html += '<th style="padding: 8px; background: #424242; color: white; border: 1px solid #ddd; text-align: center; min-width: 100px;">Total</th>';
+            html += '<tr><th style="padding: 8px; background: var(--table-th-bg); color: var(--text-primary); border: 1px solid var(--border-color); position: sticky; left: 0; z-index: 10;">Part Number</th>';
+            html += '<th style="padding: 8px; background: var(--table-th-bg); color: var(--text-primary); border: 1px solid var(--border-color); position: sticky; left: 100px; z-index: 10;">WO</th>';
+            html += '<th style="padding: 8px; background: var(--table-th-bg); color: var(--text-primary); border: 1px solid var(--border-color); text-align: center; min-width: 120px;">1 Time Pass %</th>';
+            html += '<th style="padding: 8px; background: var(--table-th-bg); color: var(--text-primary); border: 1px solid var(--border-color); text-align: center; min-width: 100px;">1 Time Pass</th>';
+            html += '<th style="padding: 8px; background: var(--table-th-bg); color: var(--text-primary); border: 1px solid var(--border-color); text-align: center; min-width: 100px;">Total</th>';
             html += '</tr>';
             
             // Rows grouped by part number
@@ -1345,15 +1357,15 @@
                 rows.forEach((row, idx) => {
                     html += '<tr>';
                     if (idx === 0) {
-                        html += `<td rowspan="${rows.length}" style="padding: 8px; border: 1px solid #ddd; background: #f0f0f0; font-weight: bold; vertical-align: middle; text-align: center;">${part}</td>`;
+                        html += `<td rowspan="${rows.length}" style="padding: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-weight: bold; vertical-align: middle; text-align: center;">${part}</td>`;
                     }
-                    html += `<td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">${row.wo}</td>`;
+                    html += `<td style="padding: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-weight: bold;">${row.wo}</td>`;
                     
                     const value = row.one_time_pass_percentage || 0;
                     const textColor = getHeatmapColor(value);
                     html += `<td style="padding: 8px; border: 1px solid var(--border-color); background: transparent; text-align: center; font-weight: 700; color: ${textColor};" title="${row.wo}: ${row.one_time_pass} out of ${row.total} SNs (${value.toFixed(1)}%)">${value.toFixed(1)}%</td>`;
-                    html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${row.one_time_pass}</td>`;
-                    html += `<td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${row.total}</td>`;
+                    html += `<td style="padding: 8px; border: 1px solid var(--border-color); text-align: center;">${row.one_time_pass}</td>`;
+                    html += `<td style="padding: 8px; border: 1px solid var(--border-color); text-align: center;">${row.total}</td>`;
                     html += '</tr>';
                 });
             });
@@ -1385,6 +1397,7 @@
             document.getElementById('startDate').value = weekAgo.toISOString().split('T')[0];
         }
     </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>
 

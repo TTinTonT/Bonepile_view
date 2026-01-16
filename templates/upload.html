@@ -112,6 +112,17 @@
             border-left: 6px solid #3498db;
         }
     </style>
+    <script>
+        (function () {
+            try {
+                var t = localStorage.getItem('theme');
+                if (t !== 'light' && t !== 'dark') {
+                    t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+                }
+                document.documentElement.setAttribute('data-theme', t);
+            } catch (e) {}
+        })();
+    </script>
     <!-- Shared theme (kept last to override page-specific legacy styles) -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
@@ -132,6 +143,7 @@
                     <a href="/debug-comparison" class="btn btn-secondary">Debug Comparison</a>
                     <a href="/hourly-report" class="btn btn-secondary">Hourly Report</a>
                     <a href="/upload" class="btn btn-secondary" aria-current="page">Upload</a>
+                    <button type="button" class="btn btn-secondary theme-toggle" id="themeToggle" aria-label="Toggle theme"></button>
                 </div>
             </div>
         </div>
@@ -179,6 +191,7 @@
         
         <!-- back link removed; use header Back button -->
     </div>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>
 
