@@ -111,6 +111,13 @@ body{
   justify-content:space-between;
   gap:16px;
 }
+.header-right{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:10px;
+  min-width:0;
+}
 .header-left{
   display:flex;
   align-items:center;
@@ -153,27 +160,34 @@ body{
 
 /* Header nav as a "tab bar" / segmented control */
 .nav-actions{
-  flex-wrap:wrap;
+  flex-wrap:nowrap; /* keep on one line so theme toggle doesn't drop */
   gap:0;
   background:var(--nav-bg);
   border:1px solid var(--nav-border);
   border-radius:14px;
-  padding:6px 6px 0;
+  padding:6px; /* match hourly_report */
   box-shadow:var(--shadow-sm);
   position:relative;
   z-index:5;
   border-bottom:0;
+  max-width:100%;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-width:none;       /* Firefox: hide scrollbar */
+  -ms-overflow-style:none;    /* IE/Edge legacy: hide scrollbar */
 }
+.nav-actions::-webkit-scrollbar{ display:none; } /* Chromium/Safari: hide scrollbar */
 .nav-actions .btn{
   background:transparent!important;
   color:var(--text-secondary)!important;
   border:1px solid var(--nav-border)!important;
   border-radius:0!important;
-  padding:12px 18px!important;
-  font-size:15px!important;
+  padding:10px 14px!important; /* match hourly_report */
+  font-size:14px!important;
   box-shadow:none!important;
   transform:none!important;
   border-bottom:1px solid var(--nav-border)!important;
+  white-space:nowrap;
 }
 .nav-actions .btn:hover{
   background:var(--nav-hover-bg)!important; /* soft highlight, theme-aware */
@@ -191,12 +205,68 @@ body{
   border-bottom-right-radius:10px!important;
 }
 
-/* Theme toggle button (keeps nav from shifting when label changes) */
-.theme-toggle{
-  min-width:76px!important;
-  text-align:center!important;
-  padding-left:14px!important;
-  padding-right:14px!important;
+/* Theme switch (top-right) */
+.theme-switch{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid var(--nav-border);
+  background:var(--nav-bg);
+  box-shadow:var(--shadow-sm);
+  user-select:none;
+}
+.theme-switch-label{
+  font-size:12px;
+  color:var(--text-secondary);
+  line-height:1;
+}
+.theme-switch-control{
+  position:relative;
+  display:inline-block;
+  width:46px;
+  height:24px;
+  flex:0 0 auto;
+}
+.theme-switch-control input{
+  opacity:0;
+  width:0;
+  height:0;
+}
+.theme-switch-slider{
+  position:absolute;
+  cursor:pointer;
+  top:0;
+  left:0;
+  right:0;
+  bottom:0;
+  background:rgba(148,163,184,.25);
+  border:1px solid var(--nav-border);
+  transition:.2s;
+  border-radius:999px;
+}
+.theme-switch-slider:before{
+  position:absolute;
+  content:"";
+  height:18px;
+  width:18px;
+  left:3px;
+  bottom:2px;
+  background:var(--text-primary);
+  transition:.2s;
+  border-radius:999px;
+  opacity:.92;
+}
+html[data-theme="light"] .theme-switch-slider:before{
+  background:rgba(2,6,23,.85);
+}
+.theme-switch-control input:checked + .theme-switch-slider{
+  background:rgba(16,185,129,.22);
+  border-color:rgba(16,185,129,.65);
+}
+.theme-switch-control input:checked + .theme-switch-slider:before{
+  transform:translateX(20px);
 }
 .nav-actions .btn[aria-current="page"],
 .nav-actions .btn.active{

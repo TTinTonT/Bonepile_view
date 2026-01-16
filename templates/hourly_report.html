@@ -36,6 +36,9 @@
             --text-primary: #f1f5f9;
             --text-secondary: #94a3b8;
             --border-color: #334155;
+            /* Match Dashboard main-container surface */
+            --panel-bg: rgba(15,23,42,.35);
+            --panel-border: rgba(51,65,85,.9);
             --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
             --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
             --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
@@ -48,6 +51,9 @@
             --text-primary:#0f172a;
             --text-secondary:#475569;
             --border-color:#cbd5e1;
+            /* Match Dashboard main-container surface (light) */
+            --panel-bg: rgba(2,6,23,.03);
+            --panel-border: rgba(148,163,184,.45);
         }
         
         * {
@@ -96,10 +102,67 @@
             margin-top: 6px;
         }
 
+        .header-right{
+            display:flex;
+            flex-direction:column;
+            align-items:flex-end;
+            gap:10px;
+            min-width:0;
+        }
+
+        /* Theme switch (top-right) */
+        .theme-switch{
+            display:flex;
+            align-items:center;
+            gap:10px;
+            padding:6px 10px;
+            border-radius:999px;
+            border:1px solid rgba(51,65,85,.9);
+            background:rgba(15,23,42,.35);
+            box-shadow:var(--shadow-sm);
+            user-select:none;
+        }
+        html[data-theme="light"] .theme-switch{
+            border-color:rgba(148,163,184,.55);
+            background:rgba(2,6,23,.03);
+        }
+        .theme-switch-label{ font-size:12px; color:var(--text-secondary); line-height:1; }
+        .theme-switch-control{
+            position:relative;
+            display:inline-block;
+            width:46px;
+            height:24px;
+            flex:0 0 auto;
+        }
+        .theme-switch-control input{ opacity:0; width:0; height:0; }
+        .theme-switch-slider{
+            position:absolute; cursor:pointer;
+            top:0; left:0; right:0; bottom:0;
+            background:rgba(148,163,184,.25);
+            border:1px solid rgba(51,65,85,.9);
+            transition:.2s;
+            border-radius:999px;
+        }
+        html[data-theme="light"] .theme-switch-slider{ border-color:rgba(148,163,184,.55); }
+        .theme-switch-slider:before{
+            position:absolute; content:"";
+            height:18px; width:18px;
+            left:3px; bottom:2px;
+            background:rgba(241,245,249,.92);
+            transition:.2s;
+            border-radius:999px;
+        }
+        html[data-theme="light"] .theme-switch-slider:before{ background:rgba(2,6,23,.85); }
+        .theme-switch-control input:checked + .theme-switch-slider{
+            background:rgba(16,185,129,.22);
+            border-color:rgba(16,185,129,.65);
+        }
+        .theme-switch-control input:checked + .theme-switch-slider:before{ transform:translateX(20px); }
+
         /* Header nav as a "tab bar" / segmented control (matching other pages) */
         .nav-actions{
             display:flex;
-            flex-wrap:wrap;
+            flex-wrap:nowrap; /* keep on one line */
             gap:0;
             justify-content:flex-end;
             background:rgba(15,23,42,.35);
@@ -107,7 +170,13 @@
             border-radius:14px;
             padding:6px;
             box-shadow:var(--shadow-sm);
+            max-width:100%;
+            overflow-x:auto;
+            overflow-y:hidden;
+            scrollbar-width:none;       /* Firefox */
+            -ms-overflow-style:none;    /* IE/Edge legacy */
         }
+        .nav-actions::-webkit-scrollbar{ display:none; } /* Chromium/Safari */
         html[data-theme="light"] .nav-actions{
             background:rgba(2,6,23,.03);
             border:1px solid rgba(148,163,184,.55);
@@ -175,8 +244,8 @@
         .main-container{
             margin-top:-16px!important;
             padding-top:28px!important;
-            background:rgba(15,23,42,.35)!important;
-            border:1px solid rgba(51,65,85,.9)!important;
+            background:var(--panel-bg)!important;
+            border:1px solid var(--panel-border)!important;
             border-radius:14px!important;
             box-shadow:var(--shadow-sm)!important;
             position:relative;
@@ -669,13 +738,22 @@
                         <div class="subtitle">IGS Test Results Analyzer • Real-time log insights</div>
                     </div>
                 </div>
-                <div class="nav-actions">
-                    <a href="/" class="btn btn-secondary">Dashboard</a>
-                    <a href="/daily-test-analysis" class="btn btn-secondary">Daily Test Analysis</a>
-                    <a href="/debug-comparison" class="btn btn-secondary">Debug Comparison</a>
-                    <a href="/hourly-report" class="btn btn-secondary" aria-current="page">Hourly Report</a>
-                    <a href="/upload" class="btn btn-secondary">Upload</a>
-                    <button type="button" class="btn btn-secondary theme-toggle" id="themeToggle" aria-label="Toggle theme"></button>
+                <div class="header-right">
+                    <div class="theme-switch" title="Toggle theme">
+                        <span class="theme-switch-label">Light</span>
+                        <label class="theme-switch-control">
+                            <input type="checkbox" id="themeToggle" aria-label="Toggle theme">
+                            <span class="theme-switch-slider"></span>
+                        </label>
+                        <span class="theme-switch-label">Dark</span>
+                    </div>
+                    <div class="nav-actions">
+                        <a href="/" class="btn btn-secondary">Dashboard</a>
+                        <a href="/daily-test-analysis" class="btn btn-secondary">Daily Test Analysis</a>
+                        <a href="/debug-comparison" class="btn btn-secondary">Debug Comparison</a>
+                        <a href="/hourly-report" class="btn btn-secondary" aria-current="page">Hourly Report</a>
+                        <a href="/upload" class="btn btn-secondary">Upload</a>
+                    </div>
                 </div>
             </div>
         </div>

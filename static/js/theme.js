@@ -34,9 +34,20 @@
   function updateToggle(theme) {
     var btn = document.getElementById("themeToggle");
     if (!btn) return;
+    // Support both legacy button/link toggle and the new checkbox switch.
+    var isDark = theme === "dark";
+    var tag = (btn.tagName || "").toLowerCase();
+    var type = (btn.getAttribute && btn.getAttribute("type")) || "";
+
+    if (tag === "input" && type.toLowerCase() === "checkbox") {
+      btn.checked = isDark; // checked = Dark
+      return;
+    }
+
+    // Legacy fallback: label shows the ACTION (what you'll switch to)
     var isLight = theme === "light";
-    btn.textContent = isLight ? "Light" : "Dark";
-    btn.setAttribute("aria-pressed", isLight ? "true" : "false");
+    btn.textContent = isLight ? "Dark" : "Light";
+    btn.setAttribute("aria-pressed", isDark ? "true" : "false");
     btn.title = isLight ? "Switch to Dark" : "Switch to Light";
   }
 
@@ -51,7 +62,21 @@
     setTheme(theme);
 
     var btn = document.getElementById("themeToggle");
-    if (btn) btn.addEventListener("click", toggleTheme);
+    if (!btn) return;
+
+    var tag = (btn.tagName || "").toLowerCase();
+    var type = (btn.getAttribute && btn.getAttribute("type")) || "";
+    if (tag === "input" && type.toLowerCase() === "checkbox") {
+      btn.addEventListener("change", function () {
+        setTheme(btn.checked ? "dark" : "light");
+      });
+      return;
+    }
+
+    btn.addEventListener("click", function (e) {
+      if (e && typeof e.preventDefault === "function") e.preventDefault();
+      toggleTheme();
+    });
   });
 })();
 

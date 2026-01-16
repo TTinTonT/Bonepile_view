@@ -225,15 +225,24 @@
                         <div class="subtitle">IGS Test Results Analyzer • Real-time log insights</div>
                     </div>
                 </div>
-                <div class="nav-actions">
-                    <a href="/" class="btn btn-secondary" aria-current="page">Dashboard</a>
-                    {% if show_daily_test_button %}
-                    <a href="/daily-test-analysis" class="btn btn-secondary">Daily Test Analysis</a>
-                    {% endif %}
-                    <a href="/debug-comparison" class="btn btn-secondary">Debug Comparison</a>
-                    <a href="/hourly-report" class="btn btn-secondary">Hourly Report</a>
-                    <a href="/upload" class="btn btn-secondary">Upload</a>
-                    <button type="button" class="btn btn-secondary theme-toggle" id="themeToggle" aria-label="Toggle theme"></button>
+                <div class="header-right">
+                    <div class="theme-switch" title="Toggle theme">
+                        <span class="theme-switch-label">Light</span>
+                        <label class="theme-switch-control">
+                            <input type="checkbox" id="themeToggle" aria-label="Toggle theme">
+                            <span class="theme-switch-slider"></span>
+                        </label>
+                        <span class="theme-switch-label">Dark</span>
+                    </div>
+                    <div class="nav-actions">
+                        <a href="/" class="btn btn-secondary" aria-current="page">Dashboard</a>
+                        {% if show_daily_test_button %}
+                        <a href="/daily-test-analysis" class="btn btn-secondary">Daily Test Analysis</a>
+                        {% endif %}
+                        <a href="/debug-comparison" class="btn btn-secondary">Debug Comparison</a>
+                        <a href="/hourly-report" class="btn btn-secondary">Hourly Report</a>
+                        <a href="/upload" class="btn btn-secondary">Upload</a>
+                    </div>
                 </div>
             </div>
         </div>
