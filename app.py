@@ -665,6 +665,7 @@ def get_latest_date_from_dispositions(dispositions):
 def get_column_name(df, column_name, fallback_index=None):
     """
     Get column name from dataframe with fallback to index.
+    Tries exact match first, then partial match, then fallback index.
     
     Args:
         df: pandas DataFrame
@@ -672,23 +673,63 @@ def get_column_name(df, column_name, fallback_index=None):
         fallback_index: Column index (0-based) to use if column name not found
     
     Returns:
-        Column name (string) or index (int) if fallback is used
+        Column name (string) if found, None if not found and no valid fallback
     """
     if df is None or df.empty:
-        return fallback_index if fallback_index is not None else column_name
+        return None
     
-    # Try to find column by name (case-insensitive, trimmed)
+    # Try to find column by exact name match (case-insensitive, trimmed)
     column_name_lower = str(column_name).strip().lower()
     for col in df.columns:
         if str(col).strip().lower() == column_name_lower:
             return col
     
+    # Try partial match for special cases like "IGS Status" or "IGS Action"
+    # This handles cases where column might be named slightly differently
+    if 'igs' in column_name_lower:
+        # For IGS columns, try to find any column containing both keywords
+        keywords = column_name_lower.split()
+        if len(keywords) >= 2:
+            for col in df.columns:
+                col_lower = str(col).strip().lower()
+                # Check if column contains all keywords
+                if all(keyword in col_lower for keyword in keywords):
+                    return col
+    
     # Fallback to index if provided
     if fallback_index is not None and fallback_index < len(df.columns):
-        return df.columns[fallback_index]
+        fallback_col = df.columns[fallback_index]
+        # Verify the fallback column exists
+        if fallback_col in df.columns:
+            return fallback_col
     
-    # Return original column_name if no match found and no fallback
-    return column_name
+    # Return None if no match found and no valid fallback
+    return None
+
+# Helper function to safely get value from row
+def safe_get_row_value(row, column_name, default=''):
+    """
+    Safely get value from pandas Series (row) with fallback to default.
+    
+    Args:
+        row: pandas Series (row from iterrows())
+        column_name: Column name or index to access
+        default: Default value if column doesn't exist or is NaN
+    
+    Returns:
+        Value from row or default
+    """
+    if column_name is None:
+        return default
+    
+    try:
+        if column_name in row.index:
+            value = row[column_name]
+            return value if pd.notna(value) else default
+        else:
+            return default
+    except (KeyError, IndexError, TypeError):
+        return default
 
 # Function to load FA Work Log and create SN -> WO mapping
 def load_fa_work_log():
@@ -1249,12 +1290,12 @@ def load_data(filename=None):
     disposition_by_row = {}  # Map row index to list of dispositions
     
     for idx, row in records_with_igs_action.iterrows():
-        sn = row[sn_col]
+        sn = safe_get_row_value(row, sn_col, '')
         sn_str = str(int(sn)) if isinstance(sn, (int, float)) else str(sn).strip().replace('.0', '')
-        nv_disp_text = row[nv_disposition_col] if pd.notna(row[nv_disposition_col]) else ''
-        igs_action_text = row[igs_action_col] if pd.notna(row[igs_action_col]) else ''
-        igs_status_text = row[igs_status_col] if pd.notna(row[igs_status_col]) else ''
-        result_text = row[result_col] if pd.notna(row[result_col]) else ''
+        nv_disp_text = safe_get_row_value(row, nv_disposition_col, '')
+        igs_action_text = safe_get_row_value(row, igs_action_col, '')
+        igs_status_text = safe_get_row_value(row, igs_status_col, '')
+        result_text = safe_get_row_value(row, result_col, '')
         
         # Parse dispositions from NV Disposition column
         nv_dispositions = parse_dispositions_from_text(str(nv_disp_text))
@@ -1360,16 +1401,30 @@ def load_data(filename=None):
     ]
     
     # In process dispositions (only for IGS records)
-    fail_with_action = fail_igs_records[~fail_igs_records[sn_col].isin(set(fail_with_empty_action[sn_col].unique()))]
-    in_process_records = fail_with_action[
-        fail_with_action[igs_status_col].apply(is_in_process)
-    ]
+    fail_with_action = fail_igs_records[~fail_igs_records[sn_col].isin(set(fail_with_empty_action[sn_col].unique())) if len(fail_with_empty_action) > 0 else fail_igs_records]
+    
+    if igs_status_col and igs_status_col in fail_with_action.columns and len(fail_with_action) > 0:
+        in_process_records = fail_with_action[
+            fail_with_action[igs_status_col].apply(is_in_process)
+        ]
+    else:
+        in_process_records = pd.DataFrame()
     
     # Waiting for material
-    waiting_material_records = in_process_records[
-        in_process_records[igs_status_col].apply(is_waiting_for_material) |
-        in_process_records[igs_action_col].apply(is_waiting_for_material)
-    ]
+    if len(in_process_records) > 0:
+        if igs_status_col and igs_status_col in in_process_records.columns:
+            status_filter = in_process_records[igs_status_col].apply(is_waiting_for_material)
+        else:
+            status_filter = pd.Series([False] * len(in_process_records), index=in_process_records.index)
+        
+        if igs_action_col and igs_action_col in in_process_records.columns:
+            action_filter = in_process_records[igs_action_col].apply(is_waiting_for_material)
+        else:
+            action_filter = pd.Series([False] * len(in_process_records), index=in_process_records.index)
+        
+        waiting_material_records = in_process_records[status_filter | action_filter]
+    else:
+        waiting_material_records = pd.DataFrame()
     
     # Current dispositions (result = FAIL, PIC = IGS)
     # Completed if IGS Status doesn't have "testing" or "waiting" (except "waiting for disposition")
@@ -1378,9 +1433,9 @@ def load_data(filename=None):
     current_dispositions_waiting_material = []
     
     for idx, row in fail_igs_records.iterrows():
-        sn = row[sn_col]
+        sn = safe_get_row_value(row, sn_col, '')
         sn_str = str(int(sn)) if isinstance(sn, (int, float)) else str(sn).strip().replace('.0', '')
-        igs_status = row[igs_status_col] if pd.notna(row[igs_status_col]) else ''
+        igs_status = safe_get_row_value(row, igs_status_col, '')
         igs_status_lower = str(igs_status).lower()
         
         wo = sn_wo_mapping.get(sn_str, '')
@@ -1603,11 +1658,11 @@ def get_waiting_material():
         
         result = []
         for idx, row in data['waiting_material_records'].iterrows():
-            sn = row[data['cols']['sn']]
+            sn = safe_get_row_value(row, data['cols']['sn'], '')
             sn_str = str(int(sn)) if isinstance(sn, (int, float)) else str(sn)
-            nv_disp = row[data['cols']['nv_disposition']] if pd.notna(row[data['cols']['nv_disposition']]) else ''
-            igs_action = row[data['cols']['igs_action']] if pd.notna(row[data['cols']['igs_action']]) else ''
-            igs_status = row[data['cols']['igs_status']] if pd.notna(row[data['cols']['igs_status']]) else ''
+            nv_disp = safe_get_row_value(row, data['cols']['nv_disposition'], '')
+            igs_action = safe_get_row_value(row, data['cols']['igs_action'], '')
+            igs_status = safe_get_row_value(row, data['cols']['igs_status'], '')
             
             result.append({
                 'sn': sn_str,
