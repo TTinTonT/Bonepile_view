@@ -5,3 +5,6 @@ __pycache__/
 *.xlsx
 *.xls
 
+# Runtime mapping (user-specific)
+cache/user_mapping.json
+

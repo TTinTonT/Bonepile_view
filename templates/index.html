@@ -336,7 +336,21 @@
         {% if error %}
         <div class="note-box" style="background: #f8d7da; border-left-color: #dc3545;">
             <strong>⚠️ Error:</strong> {{ error }}<br>
-            <a href="/upload" style="color: #721c24; font-weight: bold;">Click here to upload a file</a>
+            <a href="/upload#settings" style="color: #721c24; font-weight: bold; margin-right: 12px;">Open Mapping</a>
+            <a href="/upload" style="color: #721c24; font-weight: bold;">Upload files</a>
+
+            {% if error_details %}
+            <div style="margin-top: 10px; font-size: 12px; line-height: 1.5;">
+                <div><strong>Details:</strong></div>
+                {% if error_details.sheet %}<div>- <strong>sheet</strong>: {{ error_details.sheet }}</div>{% endif %}
+                {% if error_details.header_row is not none %}<div>- <strong>header_row</strong>: {{ error_details.header_row }}</div>{% endif %}
+                {% if error_details.expected %}<div>- <strong>expected</strong>: {{ error_details.expected }}</div>{% endif %}
+                {% if error_details.available_columns %}
+                    <div>- <strong>available columns</strong> (first 20):</div>
+                    <div style="font-family: monospace; white-space: pre-wrap;">{{ error_details.available_columns[:20] }}</div>
+                {% endif %}
+            </div>
+            {% endif %}
         </div>
         {% endif %}
         

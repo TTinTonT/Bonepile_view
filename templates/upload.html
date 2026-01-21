@@ -177,15 +177,15 @@
         </div>
 
         <!-- Metric Understanding (Upload) -->
-        <div class="info-panel" style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; margin-bottom: 20px;">
-            <div onclick="toggleInfoPanel()" style="padding: 12px 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #e9ecef; border-radius: 5px 5px 0 0;">
-                <h3 style="margin: 0; color: #495057;">
+        <div class="info-panel" style="margin-bottom: 20px;">
+            <div onclick="toggleInfoPanel()" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0;">
                     <span style="margin-right: 8px;">ℹ️</span>
                     Metric Understanding
                 </h3>
                 <span id="infoPanelToggle" style="font-size: 18px; transition: transform 0.3s; transform: rotate(180deg);">▲</span>
             </div>
-            <div id="infoPanelContent" style="padding: 15px; display: none; color: var(--text-secondary); line-height: 1.6;">
+            <div id="infoPanelContent" style="margin-top: 14px; display: none; color: var(--text-secondary); line-height: 1.6;">
                 <ul style="margin: 0; padding-left: 20px;">
                     <li><strong style="color: var(--text-primary);">NV_IGS_VR144_Bonepile.xlsx</strong>: main data source (uses sheet <strong>VR-TS1</strong>) for Dashboard / Daily Test Analysis / Debug Comparison / Hourly Report.</li>
                     <li><strong style="color: var(--text-primary);">FA_Work_Log.xlsx</strong>: optional mapping for <strong>WO</strong> (uses sheet <strong>Log</strong>, Column B = SN, Column C = WO). Enables WO grouping/filters on some pages.</li>
@@ -195,6 +195,7 @@
         </div>
         
         <form method="POST" enctype="multipart/form-data">
+            <input type="hidden" name="form_type" value="upload">
             <div class="upload-area" style="margin-bottom: 20px;">
                 <p style="font-size: 18px; margin-bottom: 10px;">📁 NV_IGS_VR144_Bonepile.xlsx</p>
                 <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Main data file with VR-TS1 sheet</p>
@@ -215,13 +216,187 @@
             
             <button type="submit">Upload and Analyze</button>
         </form>
+
+        <div id="settings" style="margin-top: 26px;"></div>
+        <div class="info-panel" style="margin-top: 18px;">
+            <div onclick="toggleMappingPanel()" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0;">
+                    <span style="margin-right: 8px;">⚙️</span>
+                    Mapping (Manual)
+                </h3>
+                <span id="mappingPanelToggle" style="font-size: 18px; transition: transform 0.3s; transform: rotate(180deg);">▲</span>
+            </div>
+            <div id="mappingPanelContent" style="margin-top: 14px; display: none;">
+                <div class="info-box" style="margin: 0 0 15px 0;">
+                    <strong>Saved to:</strong> <span style="font-family: monospace;">cache/user_mapping.json</span><br>
+                    If NV changes sheet/columns, update mapping here and click Save.
+                </div>
+
+                <form method="POST">
+                    <input type="hidden" name="form_type" value="settings">
+
+                    <div class="control-panel" style="margin-bottom: 14px;">
+                        <h3 style="margin: 0 0 10px 0;">Bonepile</h3>
+                        <div class="subtitle" style="margin-top: 0;">
+                            File: <span style="font-family: monospace;">{{ bonepile_path if bonepile_path else 'Not found (upload first)' }}</span> •
+                            Header row is <strong>Excel row number</strong> (starts at 1)
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px;">
+                            <div>
+                                <label>File name</label>
+                                <input type="text" name="bonepile_file_name" value="{{ mapping.bonepile.file_name }}">
+                            </div>
+                            <div>
+                                <label>Sheet</label>
+                                <select name="bonepile_sheet_name">
+                                    {% if bonepile_sheets %}
+                                        {% for s in bonepile_sheets %}
+                                            <option value="{{ s }}" {% if s == mapping.bonepile.sheet_name %}selected{% endif %}>{{ s }}</option>
+                                        {% endfor %}
+                                    {% else %}
+                                        <option value="{{ mapping.bonepile.sheet_name }}">{{ mapping.bonepile.sheet_name }}</option>
+                                    {% endif %}
+                                </select>
+                            </div>
+                            <div>
+                                <label>Header row (Excel row number)</label>
+                                <input type="number" name="bonepile_header_row" min="1" value="{{ bonepile_header_row_excel if bonepile_header_row_excel else mapping.bonepile.header_row_excel }}">
+                            </div>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px;">
+                            {% set bp = mapping.bonepile.columns %}
+                            {% for field, label, is_required in [
+                                ('sn','SN', true),
+                                ('result','Result/Status', true),
+                                ('pic','PIC', true),
+                                ('nv_disposition','NV Disposition', true),
+                                ('igs_action','IGS Action', true),
+                                ('igs_status','IGS Status', true),
+                                ('bp_duration','BP Duration', true),
+                                ('fail_time','Fail Time', false)
+                            ] %}
+                            <div>
+                                <label>
+                                    {{ label }}
+                                    {% if is_required %}
+                                        <span class="text-fail">(required)</span>
+                                    {% else %}
+                                        <span class="subtitle" style="margin: 0 0 0 6px;">(optional)</span>
+                                    {% endif %}
+                                </label>
+                                <select name="bonepile_col_{{ field }}">
+                                    <option value="">(none)</option>
+                                    {% for h in bonepile_headers %}
+                                        <option value="{{ h.value }}" {% if bp[field] == h.value %}selected{% endif %}>{{ h.label }}</option>
+                                    {% endfor %}
+                                    {% if not bonepile_headers and bp[field] %}
+                                        <option value="{{ bp[field] }}" selected>{{ bp[field] }}</option>
+                                    {% endif %}
+                                </select>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% if bonepile_header_errors and not bonepile_headers %}
+                        <div class="note-box" style="margin-top: 12px;">
+                            <strong>⚠️ Cannot list columns.</strong>
+                            <div style="margin-top: 6px; font-size: 12px; font-family: monospace; white-space: pre-wrap;">{{ bonepile_header_errors }}</div>
+                            <div style="margin-top: 6px;">Try adjusting <strong>Sheet</strong> and <strong>Header row</strong>, or re-upload a valid .xlsx.</div>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="control-panel" style="margin-bottom: 14px;">
+                        <h3 style="margin: 0 0 10px 0;">FA Work Log</h3>
+                        <div class="subtitle" style="margin-top: 0;">
+                            File: <span style="font-family: monospace;">{{ worklog_path if worklog_path else 'Not found (upload first)' }}</span> •
+                            Start row is <strong>1-based</strong> • Column indices are <strong>0-based</strong> (A=0, B=1...)
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px;">
+                            <div>
+                                <label>File name</label>
+                                <input type="text" name="worklog_file_name" value="{{ mapping.fa_work_log.file_name }}">
+                            </div>
+                            <div>
+                                <label>Sheet</label>
+                                <select name="worklog_sheet_name">
+                                    {% if worklog_sheets %}
+                                        {% for s in worklog_sheets %}
+                                            <option value="{{ s }}" {% if s == mapping.fa_work_log.sheet_name %}selected{% endif %}>{{ s }}</option>
+                                        {% endfor %}
+                                    {% else %}
+                                        <option value="{{ mapping.fa_work_log.sheet_name }}">{{ mapping.fa_work_log.sheet_name }}</option>
+                                    {% endif %}
+                                </select>
+                            </div>
+                            <div>
+                                <label>Start row (Excel row number)</label>
+                                <input type="number" name="worklog_start_row" min="1" value="{{ mapping.fa_work_log.start_row }}">
+                            </div>
+                            <div>
+                                <label>SN column (0-based)</label>
+                                <select name="worklog_sn_col_index">
+                                    {% if worklog_col_options %}
+                                        {% for o in worklog_col_options %}
+                                            <option value="{{ o.value }}" {% if o.value == mapping.fa_work_log.sn_col_index %}selected{% endif %}>{{ o.label }}</option>
+                                        {% endfor %}
+                                    {% else %}
+                                        <option value="{{ mapping.fa_work_log.sn_col_index }}">{{ mapping.fa_work_log.sn_col_index }}</option>
+                                    {% endif %}
+                                </select>
+                            </div>
+                            <div>
+                                <label>WO column (0-based)</label>
+                                <select name="worklog_wo_col_index">
+                                    {% if worklog_col_options %}
+                                        {% for o in worklog_col_options %}
+                                            <option value="{{ o.value }}" {% if o.value == mapping.fa_work_log.wo_col_index %}selected{% endif %}>{{ o.label }}</option>
+                                        {% endfor %}
+                                    {% else %}
+                                        <option value="{{ mapping.fa_work_log.wo_col_index }}">{{ mapping.fa_work_log.wo_col_index }}</option>
+                                    {% endif %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit">Save Mapping</button>
+                </form>
+            </div>
+        </div>
         
         <!-- back link removed; use header Back button -->
     </div>
     <script>
+        // Auto-open Mapping panel when linked via #settings
+        document.addEventListener('DOMContentLoaded', function() {
+            try {
+                if (window.location.hash === '#settings') {
+                    // Ensure panel is open
+                    const content = document.getElementById('mappingPanelContent');
+                    const toggle = document.getElementById('mappingPanelToggle');
+                    if (content && toggle) {
+                        content.style.display = 'block';
+                        toggle.style.transform = 'rotate(0deg)';
+                    }
+                }
+            } catch (e) {}
+        });
+
         function toggleInfoPanel() {
             const content = document.getElementById('infoPanelContent');
             const toggle = document.getElementById('infoPanelToggle');
+            if (!content || !toggle) return;
+            const isOpen = content.style.display !== 'none';
+            content.style.display = isOpen ? 'none' : 'block';
+            toggle.style.transform = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+        }
+
+        function toggleMappingPanel() {
+            const content = document.getElementById('mappingPanelContent');
+            const toggle = document.getElementById('mappingPanelToggle');
             if (!content || !toggle) return;
             const isOpen = content.style.display !== 'none';
             content.style.display = isOpen ? 'none' : 'block';

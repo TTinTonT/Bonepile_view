@@ -25,10 +25,217 @@ app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['CACHE_FOLDER'] = 'cache'
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
+USER_MAPPING_PATH = os.path.join(app.config['CACHE_FOLDER'], 'user_mapping.json')
 
 # Create upload and cache folders if not exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['CACHE_FOLDER'], exist_ok=True)
+
+
+class SchemaError(Exception):
+    """Raised when user-provided mapping can't be applied to the input file."""
+
+    def __init__(self, message, details=None):
+        super().__init__(message)
+        self.details = details or {}
+
+
+DEFAULT_USER_MAPPING = {
+    "bonepile": {
+        "file_name": "NV_IGS_VR144_Bonepile.xlsx",
+        "sheet_name": "VR-TS1",
+        # Excel header row number (1-based). Row 2 => pandas header=1.
+        "header_row_excel": 2,
+        # Backward-compat (older configs used 0-based pandas header). Keep for migration only.
+        "header_row": 1,
+        # Canonical field -> Excel column header (string). These must match df.columns values.
+        "columns": {
+            "sn": "SN",
+            "bp_duration": "bp_duration",
+            "nv_disposition": "NV Disposition",
+            "result": "Status",
+            "pic": "PIC",
+            "igs_action": "IGS Action",
+            "igs_status": "IGS Status",
+            "fail_time": "fail_time",
+        },
+    },
+    "fa_work_log": {
+        "file_name": "FA_Work_Log.xlsx",
+        "sheet_name": "Log",
+        # Excel row number (1-based) to start reading data rows (skip header)
+        "start_row": 2,
+        # Excel column index (0-based within openpyxl row tuple): Column B=1, Column C=2
+        "sn_col_index": 1,
+        "wo_col_index": 2,
+    },
+}
+
+
+def load_user_mapping():
+    """Load persisted user mapping (single source of truth)."""
+    try:
+        if os.path.exists(USER_MAPPING_PATH):
+            with open(USER_MAPPING_PATH, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    # Migrate bonepile header row to 1-based Excel row if missing
+                    try:
+                        bp = data.get('bonepile', {})
+                        if isinstance(bp, dict) and 'header_row_excel' not in bp:
+                            # Old meaning: header_row is 0-based pandas header index
+                            old = bp.get('header_row', DEFAULT_USER_MAPPING['bonepile']['header_row'])
+                            bp['header_row_excel'] = int(old) + 1
+                            data['bonepile'] = bp
+                            # Persist migration so UI shows the correct value next time
+                            save_user_mapping(data)
+                    except Exception:
+                        pass
+                    return data
+    except Exception:
+        pass
+    # Fallback to defaults if file missing or invalid
+    return json.loads(json.dumps(DEFAULT_USER_MAPPING))
+
+
+def get_bonepile_header_row_excel(bonepile_mapping):
+    """
+    Return Excel row number (1-based) for the header row.
+    Supports both new key (header_row_excel) and old key (header_row, 0-based).
+    """
+    if not isinstance(bonepile_mapping, dict):
+        return int(DEFAULT_USER_MAPPING['bonepile']['header_row_excel'])
+    if 'header_row_excel' in bonepile_mapping and bonepile_mapping.get('header_row_excel') is not None:
+        try:
+            return max(1, int(bonepile_mapping.get('header_row_excel')))
+        except Exception:
+            return int(DEFAULT_USER_MAPPING['bonepile']['header_row_excel'])
+    # Backward compat
+    try:
+        return max(1, int(bonepile_mapping.get('header_row', DEFAULT_USER_MAPPING['bonepile']['header_row'])) + 1)
+    except Exception:
+        return int(DEFAULT_USER_MAPPING['bonepile']['header_row_excel'])
+
+
+def bonepile_header_row_0_based(bonepile_mapping):
+    """Convert Excel header row number (1-based) to pandas header index (0-based)."""
+    return max(0, get_bonepile_header_row_excel(bonepile_mapping) - 1)
+
+
+def save_user_mapping(mapping):
+    """Persist user mapping to disk."""
+    with open(USER_MAPPING_PATH, 'w', encoding='utf-8') as f:
+        json.dump(mapping, f, indent=2, ensure_ascii=False)
+
+
+def resolve_uploaded_or_local_path(file_name):
+    """Prefer uploads/<file_name>, else project root <file_name>."""
+    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], file_name)
+    if os.path.exists(upload_path):
+        return upload_path
+    if os.path.exists(file_name):
+        return file_name
+    return None
+
+
+def list_excel_sheets(file_path):
+    """Return list of sheet names from an Excel file."""
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(file_path, read_only=True, data_only=True)
+        names = list(wb.sheetnames)
+        wb.close()
+        return names
+    except Exception:
+        return []
+
+
+def get_pandas_columns(file_path, sheet_name, header_row_0_based):
+    """
+    Get columns via pandas (fallback when openpyxl header read fails).
+    Uses nrows=0 so it only reads headers.
+    """
+    try:
+        df0 = pd.read_excel(file_path, sheet_name=sheet_name, header=int(header_row_0_based), nrows=0)
+        cols = []
+        for idx, c in enumerate(list(df0.columns)):
+            cols.append({"index": idx, "name": '' if c is None else str(c).strip()})
+        return cols
+    except Exception:
+        return []
+
+
+def get_excel_sheet_max_column(file_path, sheet_name):
+    """Return max_column for a sheet (capped for UI)."""
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(file_path, read_only=True, data_only=True)
+        if sheet_name not in wb.sheetnames:
+            wb.close()
+            return 0
+        ws = wb[sheet_name]
+        max_col = int(ws.max_column or 0)
+        wb.close()
+        return max_col
+    except Exception:
+        return 0
+
+
+def get_excel_header_values(file_path, sheet_name, header_row_0_based):
+    """
+    Read one row from Excel to build a list of column options with index.
+    header_row_0_based: pandas-style header row index (0-based).
+    """
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.utils import get_column_letter
+        wb = load_workbook(file_path, read_only=True, data_only=True)
+        if sheet_name not in wb.sheetnames:
+            wb.close()
+            return []
+        ws = wb[sheet_name]
+        excel_row = int(header_row_0_based) + 1  # openpyxl is 1-based
+        out = []
+        for idx, cell in enumerate(ws[excel_row]):
+            v = cell.value
+            name = '' if v is None else str(v).strip()
+            out.append({
+                "value": f"__idx__{idx}",
+                "name": name,
+                "index": idx,
+                "label": f"{get_column_letter(idx+1)} ({idx}) - {name if name else '(blank)'}",
+            })
+        wb.close()
+        return out
+    except Exception:
+        return []
+
+
+def resolve_df_column(df, configured_name):
+    """Resolve a configured column name against df.columns (case/whitespace tolerant)."""
+    if configured_name is None:
+        return None
+    if df is None:
+        return None
+    configured_str = str(configured_name).strip()
+
+    # Preferred mapping: by index sentinel (__idx__N)
+    if configured_str.startswith('__idx__'):
+        try:
+            idx = int(configured_str.replace('__idx__', '').strip())
+            if 0 <= idx < len(df.columns):
+                return df.columns[idx]
+            return None
+        except Exception:
+            return None
+
+    if configured_str in df.columns:
+        return configured_str
+    configured_norm = configured_str.lower().strip()
+    for col in df.columns:
+        if str(col).strip().lower() == configured_norm:
+            return col
+    return None
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -735,15 +942,16 @@ def safe_get_row_value(row, column_name, default=''):
 def load_fa_work_log():
     """Load FA_Work_Log.xlsx and create SN -> WO mapping"""
     sn_wo_mapping = {}
-    fa_work_log_path = 'FA_Work_Log.xlsx'
-    
-    # Check in upload folder first
-    upload_folder = app.config['UPLOAD_FOLDER']
-    fa_work_log_upload = os.path.join(upload_folder, 'FA_Work_Log.xlsx')
-    
-    if os.path.exists(fa_work_log_upload):
-        fa_work_log_path = fa_work_log_upload
-    elif not os.path.exists(fa_work_log_path):
+
+    mapping = load_user_mapping().get('fa_work_log', {})
+    file_name = mapping.get('file_name', DEFAULT_USER_MAPPING['fa_work_log']['file_name'])
+    sheet_name = mapping.get('sheet_name', DEFAULT_USER_MAPPING['fa_work_log']['sheet_name'])
+    start_row = int(mapping.get('start_row', DEFAULT_USER_MAPPING['fa_work_log']['start_row']))
+    sn_col_index = int(mapping.get('sn_col_index', DEFAULT_USER_MAPPING['fa_work_log']['sn_col_index']))
+    wo_col_index = int(mapping.get('wo_col_index', DEFAULT_USER_MAPPING['fa_work_log']['wo_col_index']))
+
+    fa_work_log_path = resolve_uploaded_or_local_path(file_name)
+    if not fa_work_log_path:
         return sn_wo_mapping
     
     try:
@@ -753,47 +961,59 @@ def load_fa_work_log():
         
         # Load workbook - read as string to preserve exact format
         wb = load_workbook(fa_work_log_path, read_only=True, data_only=True)
-        ws = wb['Log']
+        if sheet_name not in wb.sheetnames:
+            wb.close()
+            raise SchemaError(
+                f"FA Work Log mapping error: sheet '{sheet_name}' not found. Please update mapping in Upload.",
+                details={"file": file_name, "available_sheets": list(wb.sheetnames)},
+            )
+        ws = wb[sheet_name]
         
         loaded_count = 0
         skipped_count = 0
         
-        # Read rows starting from row 2 (skip header if exists)
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            # Column B = SN (index 1), Column C = WO (index 2)
-            if len(row) >= 3:
-                sn_value = row[1]  # Column B
-                wo_value = row[2]  # Column C
+        # Read rows starting from configured row (1-based)
+        for row in ws.iter_rows(min_row=max(1, start_row), values_only=True):
+            if not row:
+                continue
+
+            if sn_col_index >= len(row) or wo_col_index >= len(row):
+                continue
+
+            sn_value = row[sn_col_index]
+            wo_value = row[wo_col_index]
                 
-                if sn_value is not None and wo_value is not None:
-                    # Convert SN to string - handle both numeric and string types
-                    # For large integers stored as float in Excel, preserve precision
-                    if isinstance(sn_value, float):
-                        # Check if it's a whole number (integer stored as float)
-                        if sn_value.is_integer():
-                            # Convert to int first to avoid scientific notation, then to string
-                            sn_original = str(int(sn_value))
-                        else:
-                            # Should not happen for SNs, but handle it
-                            sn_original = f"{sn_value:.0f}"
-                    elif isinstance(sn_value, int):
-                        sn_original = str(sn_value)
+            if sn_value is not None and wo_value is not None:
+                # Convert SN to string - handle both numeric and string types
+                # For large integers stored as float in Excel, preserve precision
+                if isinstance(sn_value, float):
+                    # Check if it's a whole number (integer stored as float)
+                    if sn_value.is_integer():
+                        # Convert to int first to avoid scientific notation, then to string
+                        sn_original = str(int(sn_value))
                     else:
-                        sn_original = str(sn_value).strip() if sn_value else ''
+                        # Should not happen for SNs, but handle it
+                        sn_original = f"{sn_value:.0f}"
+                elif isinstance(sn_value, int):
+                    sn_original = str(sn_value)
+                else:
+                    sn_original = str(sn_value).strip() if sn_value else ''
+                
+                wo_original = str(wo_value).strip() if wo_value else ''
+                
+                if sn_original and sn_original.lower() != 'nan' and wo_original and wo_original.lower() != 'nan':
+                    sn_str = normalize_sn(sn_original)  # Normalize SN format
+                    wo_str = normalize_wo(wo_original)  # Normalize WO format
                     
-                    wo_original = str(wo_value).strip() if wo_value else ''
-                    
-                    if sn_original and sn_original.lower() != 'nan' and wo_original and wo_original.lower() != 'nan':
-                        sn_str = normalize_sn(sn_original)  # Normalize SN format
-                        wo_str = normalize_wo(wo_original)  # Normalize WO format
-                        
-                        if sn_str and len(sn_str) == 13 and sn_str.startswith('18'):
-                            sn_wo_mapping[sn_str] = wo_str
-                            loaded_count += 1
-                        else:
-                            skipped_count += 1
+                    if sn_str and len(sn_str) == 13 and sn_str.startswith('18'):
+                        sn_wo_mapping[sn_str] = wo_str
+                        loaded_count += 1
+                    else:
+                        skipped_count += 1
         
         wb.close()
+    except SchemaError:
+        raise
     except Exception as e:
         # Log error for debugging
         import traceback
@@ -805,26 +1025,38 @@ def load_fa_work_log():
 
 # Function to load Bonepile list with fail_time mapping
 def load_bonepile_list():
-    """Load NV_IGS_VR144_Bonepile.xlsx and return dict mapping SN -> fail_time (datetime)"""
-    bonepile_fail_time = {}  # {sn: fail_time (datetime)}
-    bonepile_file = 'NV_IGS_VR144_Bonepile.xlsx'
-    
-    # Check in upload folder first
-    upload_folder = app.config['UPLOAD_FOLDER']
-    bonepile_upload = os.path.join(upload_folder, 'NV_IGS_VR144_Bonepile.xlsx')
-    
-    if os.path.exists(bonepile_upload):
-        bonepile_file = bonepile_upload
-    elif not os.path.exists(bonepile_file):
+    """Load Bonepile Excel and return dict mapping SN -> fail_time (datetime or None)."""
+    bonepile_fail_time = {}  # {sn: fail_time (datetime|None)}
+
+    mapping = load_user_mapping().get('bonepile', {})
+    file_name = mapping.get('file_name', DEFAULT_USER_MAPPING['bonepile']['file_name'])
+    sheet_name = mapping.get('sheet_name', DEFAULT_USER_MAPPING['bonepile']['sheet_name'])
+    header_row_excel = get_bonepile_header_row_excel(mapping)
+    header_row = bonepile_header_row_0_based(mapping)
+    columns = mapping.get('columns', {}) or {}
+
+    bonepile_file = resolve_uploaded_or_local_path(file_name)
+    if not bonepile_file:
         return bonepile_fail_time
     
     try:
-        df = pd.read_excel(bonepile_file, sheet_name='VR-TS1', header=1)
-        
-        # Get column names with fallback to index
-        # Column A (index 0) = SN, Column D (index 3) = fail_time
-        sn_col = get_column_name(df, 'sn', fallback_index=0)
-        fail_time_col = get_column_name(df, 'fail_time', fallback_index=3)
+        df = pd.read_excel(bonepile_file, sheet_name=sheet_name, header=header_row)
+
+        sn_col = resolve_df_column(df, columns.get('sn'))
+        fail_time_col = resolve_df_column(df, columns.get('fail_time'))
+
+        if not sn_col:
+            raise SchemaError(
+                f"Bonepile mapping error: SN column not found. Please update mapping in Upload.",
+                details={
+                    "file": file_name,
+                    "sheet": sheet_name,
+                    "header_row_excel": header_row_excel,
+                    "header_row": header_row,
+                    "expected": {"sn": columns.get('sn')},
+                    "available_columns": [str(c) for c in list(df.columns)],
+                },
+            )
         
         # Remove duplicate header
         if len(df) > 0 and sn_col in df.columns:
@@ -845,8 +1077,8 @@ def load_bonepile_list():
             if not sn_str:
                 continue
             
-            # Get fail_time from column C
-            fail_time = row.get(fail_time_col)
+            # Get fail_time (optional)
+            fail_time = row.get(fail_time_col) if fail_time_col else None
             
             # Parse fail_time to datetime
             fail_time_dt = None
@@ -874,9 +1106,10 @@ def load_bonepile_list():
                 except Exception:
                     pass
             
-            # Store mapping (only if fail_time is valid)
-            if fail_time_dt:
-                bonepile_fail_time[sn_str] = fail_time_dt
+            # Store mapping (store SN even when fail_time missing)
+            bonepile_fail_time[sn_str] = fail_time_dt
+    except SchemaError:
+        raise
     except Exception as e:
         print(f"[ERROR] load_bonepile_list: {e}", flush=True)
         import traceback
@@ -1225,17 +1458,22 @@ def load_hourly_report_data(start_datetime, end_datetime):
 
 # Load data
 def load_data(filename=None):
+    user_mapping = load_user_mapping()
+    bonepile_mapping = user_mapping.get('bonepile', {})
+    default_bonepile_mapping = DEFAULT_USER_MAPPING['bonepile']
+
     if filename is None:
-        # Check if there's an uploaded file
-        upload_folder = app.config['UPLOAD_FOLDER']
-        excel_files = [f for f in os.listdir(upload_folder) if f.endswith(('.xlsx', '.xls'))]
-        if excel_files:
-            # Use the most recent file
-            excel_file = os.path.join(upload_folder, sorted(excel_files)[-1])
-        else:
-            # Default file
-            excel_file = 'NV_IGS_VR144_Bonepile.xlsx'
-            if not os.path.exists(excel_file):
+        # Prefer the configured Bonepile file
+        configured_file_name = bonepile_mapping.get('file_name', default_bonepile_mapping['file_name'])
+        excel_file = resolve_uploaded_or_local_path(configured_file_name)
+
+        # Fallback: use most recent uploaded Excel if configured file isn't found
+        if not excel_file:
+            upload_folder = app.config['UPLOAD_FOLDER']
+            excel_files = [f for f in os.listdir(upload_folder) if f.endswith(('.xlsx', '.xls'))]
+            if excel_files:
+                excel_file = os.path.join(upload_folder, sorted(excel_files)[-1])
+            else:
                 return None
     else:
         excel_file = filename
@@ -1243,26 +1481,52 @@ def load_data(filename=None):
     if not os.path.exists(excel_file):
         return None
     
+    sheet_name = bonepile_mapping.get('sheet_name', default_bonepile_mapping['sheet_name'])
+    header_row_excel = get_bonepile_header_row_excel(bonepile_mapping)
+    header_row = bonepile_header_row_0_based(bonepile_mapping)
+    configured_cols = bonepile_mapping.get('columns', default_bonepile_mapping['columns']) or {}
+
     try:
-        df = pd.read_excel(excel_file, sheet_name='VR-TS1', header=1)
-    except Exception:
-        return None
-    
-    # Get column names with fallback to index
-    # Column A (index 0) = SN
-    # Column C (index 2) = bp_du (bp_duration)
-    # Column I (index 8) = NV Disposition
-    # Column J (index 9) = Status (result - renamed)
-    # Column M (index 12) = PIC
-    # Column N (index 13) = IGS Action
-    # Column O (index 14) = IGS Status
-    sn_col = get_column_name(df, 'sn', fallback_index=0)
-    pic_col = get_column_name(df, 'PIC', fallback_index=12)
-    result_col = get_column_name(df, 'Status', fallback_index=9)
-    igs_action_col = get_column_name(df, 'IGS Action ', fallback_index=13)
-    igs_status_col = get_column_name(df, 'IGS Status', fallback_index=14)
-    bp_duration_col = get_column_name(df, 'bp_duration', fallback_index=2)
-    nv_disposition_col = get_column_name(df, 'NV Disposition', fallback_index=8)
+        df = pd.read_excel(excel_file, sheet_name=sheet_name, header=header_row)
+    except Exception as e:
+        # Provide a friendly mapping error (wrong sheet/header)
+        raise SchemaError(
+            f"Bonepile mapping error: failed to read sheet '{sheet_name}' (header row={header_row_excel}). Please update mapping in Upload. ({e})",
+            details={"file": excel_file, "sheet": sheet_name, "header_row_excel": header_row_excel, "header_row": header_row},
+        )
+
+    # Resolve required columns from saved mapping (exact, but case/whitespace tolerant)
+    sn_col = resolve_df_column(df, configured_cols.get('sn'))
+    pic_col = resolve_df_column(df, configured_cols.get('pic'))
+    result_col = resolve_df_column(df, configured_cols.get('result'))
+    igs_action_col = resolve_df_column(df, configured_cols.get('igs_action'))
+    igs_status_col = resolve_df_column(df, configured_cols.get('igs_status'))
+    bp_duration_col = resolve_df_column(df, configured_cols.get('bp_duration'))
+    nv_disposition_col = resolve_df_column(df, configured_cols.get('nv_disposition'))
+
+    required = {
+        "sn": sn_col,
+        "result": result_col,
+        "pic": pic_col,
+        "nv_disposition": nv_disposition_col,
+        "igs_action": igs_action_col,
+        "igs_status": igs_status_col,
+        "bp_duration": bp_duration_col,
+    }
+    missing = [k for k, v in required.items() if not v]
+    if missing:
+        raise SchemaError(
+            f"Bonepile mapping error: missing required columns {missing}. Please update mapping in Upload.",
+            details={
+                "file": excel_file,
+                "sheet": sheet_name,
+                "header_row_excel": header_row_excel,
+                "header_row": header_row,
+                "expected": {k: configured_cols.get(k) for k in missing},
+                "configured_columns": configured_cols,
+                "available_columns": [str(c) for c in list(df.columns)],
+            },
+        )
     
     # Remove duplicate header
     if len(df) > 0 and sn_col in df.columns:
@@ -1545,14 +1809,163 @@ def index():
         stats['duration_count'] = len(bp_durations)
         
         return render_template('index.html', stats=stats, error=None, ip=get_local_ip())
+    except SchemaError as e:
+        msg = f"{str(e)}"
+        return render_template('index.html', stats=None, error=msg, error_details=getattr(e, 'details', None), ip=get_local_ip())
     except Exception as e:
         return render_template('index.html', stats=None, error=f"Error loading data: {str(e)}", ip=get_local_ip())
 
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_file():
+    # Shared mapping context for the Upload page (Upload + Settings in one place)
+    def build_mapping_context(current_mapping):
+        # Ensure keys exist
+        if 'bonepile' not in current_mapping:
+            current_mapping['bonepile'] = json.loads(json.dumps(DEFAULT_USER_MAPPING['bonepile']))
+        if 'fa_work_log' not in current_mapping:
+            current_mapping['fa_work_log'] = json.loads(json.dumps(DEFAULT_USER_MAPPING['fa_work_log']))
+
+        bonepile_path = resolve_uploaded_or_local_path(current_mapping['bonepile'].get('file_name', DEFAULT_USER_MAPPING['bonepile']['file_name']))
+        bonepile_sheets = list_excel_sheets(bonepile_path) if bonepile_path else []
+        if bonepile_sheets and current_mapping['bonepile'].get('sheet_name') not in bonepile_sheets:
+            current_mapping['bonepile']['sheet_name'] = bonepile_sheets[0]
+        bonepile_header_errors = []
+        bonepile_headers = []
+        if bonepile_path:
+            bp_sheet = current_mapping['bonepile'].get('sheet_name', DEFAULT_USER_MAPPING['bonepile']['sheet_name'])
+            bp_header_row_excel = get_bonepile_header_row_excel(current_mapping['bonepile'])
+            bp_header_row = bonepile_header_row_0_based(current_mapping['bonepile'])
+
+            # 1) openpyxl header row -> includes index labels
+            try:
+                bonepile_headers = get_excel_header_values(bonepile_path, bp_sheet, bp_header_row)
+            except Exception as e:
+                bonepile_header_errors.append(f"openpyxl header read failed: {e}")
+
+            # 2) pandas fallback (nrows=0)
+            if not bonepile_headers:
+                try:
+                    from openpyxl.utils import get_column_letter
+                    cols = get_pandas_columns(bonepile_path, bp_sheet, bp_header_row)
+                    bonepile_headers = [{
+                        "value": f"__idx__{c['index']}",
+                        "name": c.get("name", ""),
+                        "index": c["index"],
+                        "label": f"{get_column_letter(c['index']+1)} ({c['index']}) - {c.get('name') or '(blank)'}",
+                    } for c in cols]
+                except Exception as e:
+                    bonepile_header_errors.append(f"pandas header read failed: {e}")
+
+            # 3) last resort: show pure index options (no header text)
+            if not bonepile_headers:
+                try:
+                    from openpyxl.utils import get_column_letter
+                    max_col = get_excel_sheet_max_column(bonepile_path, bp_sheet)
+                    max_col = min(int(max_col or 0), 200)
+                    bonepile_headers = [{
+                        "value": f"__idx__{i}",
+                        "name": "",
+                        "index": i,
+                        "label": f"{get_column_letter(i+1)} ({i}) - (unknown header)",
+                    } for i in range(max_col)]
+                except Exception as e:
+                    bonepile_header_errors.append(f"index fallback failed: {e}")
+
+        # Normalize configured column selections to match actual header casing (preselect defaults)
+        try:
+            bp_cols = (current_mapping.get('bonepile', {}).get('columns') or {})
+            # Prefer converting old "name-based" mappings to __idx__N when possible
+            first_idx_by_name = {}
+            for h in bonepile_headers:
+                n = str(h.get('name', '')).strip()
+                if not n:
+                    continue
+                key = n.lower()
+                if key not in first_idx_by_name:
+                    first_idx_by_name[key] = h.get('value')
+            for k, v in list(bp_cols.items()):
+                if not v:
+                    continue
+                v_str = str(v).strip()
+                if v_str.startswith('__idx__'):
+                    continue
+                resolved_idx = first_idx_by_name.get(v_str.lower())
+                if resolved_idx:
+                    bp_cols[k] = resolved_idx
+            current_mapping['bonepile']['columns'] = bp_cols
+        except Exception:
+            pass
+
+        worklog_path = resolve_uploaded_or_local_path(current_mapping['fa_work_log'].get('file_name', DEFAULT_USER_MAPPING['fa_work_log']['file_name']))
+        worklog_sheets = list_excel_sheets(worklog_path) if worklog_path else []
+        if worklog_sheets and current_mapping['fa_work_log'].get('sheet_name') not in worklog_sheets:
+            current_mapping['fa_work_log']['sheet_name'] = worklog_sheets[0]
+        worklog_max_col = (
+            get_excel_sheet_max_column(worklog_path, current_mapping['fa_work_log'].get('sheet_name', DEFAULT_USER_MAPPING['fa_work_log']['sheet_name']))
+            if worklog_path
+            else 0
+        )
+        worklog_max_col = min(int(worklog_max_col or 0), 60)
+
+        def col_label(idx):
+            try:
+                from openpyxl.utils import get_column_letter
+                return f"{get_column_letter(idx + 1)} ({idx})"
+            except Exception:
+                return str(idx)
+
+        worklog_col_options = [{"value": i, "label": col_label(i)} for i in range(max(0, worklog_max_col))]
+
+        return {
+            "mapping": current_mapping,
+            "bonepile_path": bonepile_path,
+            "bonepile_sheets": bonepile_sheets,
+            "bonepile_headers": bonepile_headers,
+            "bonepile_header_errors": bonepile_header_errors,
+            "bonepile_header_row_excel": get_bonepile_header_row_excel(current_mapping.get('bonepile', {})),
+            "worklog_path": worklog_path,
+            "worklog_sheets": worklog_sheets,
+            "worklog_col_options": worklog_col_options,
+        }
+
     if request.method == 'POST':
+        form_type = (request.form.get('form_type') or '').strip().lower()
+
+        # ---- Save mapping settings ----
+        if form_type == 'settings':
+            mapping = load_user_mapping()
+            try:
+                bp = mapping.get('bonepile') or json.loads(json.dumps(DEFAULT_USER_MAPPING['bonepile']))
+                wl = mapping.get('fa_work_log') or json.loads(json.dumps(DEFAULT_USER_MAPPING['fa_work_log']))
+
+                bp['file_name'] = (request.form.get('bonepile_file_name') or bp.get('file_name') or DEFAULT_USER_MAPPING['bonepile']['file_name']).strip()
+                bp['sheet_name'] = (request.form.get('bonepile_sheet_name') or bp.get('sheet_name') or DEFAULT_USER_MAPPING['bonepile']['sheet_name']).strip()
+                bp['header_row_excel'] = int(request.form.get('bonepile_header_row', bp.get('header_row_excel', DEFAULT_USER_MAPPING['bonepile']['header_row_excel'])))
+                # Keep backward-compat field in sync (0-based)
+                bp['header_row'] = max(0, int(bp['header_row_excel']) - 1)
+                bp_cols = bp.get('columns', {}) or {}
+                for field in ['sn', 'result', 'pic', 'nv_disposition', 'igs_action', 'igs_status', 'bp_duration', 'fail_time']:
+                    bp_cols[field] = (request.form.get(f'bonepile_col_{field}') or '').strip()
+                bp['columns'] = bp_cols
+
+                wl['file_name'] = (request.form.get('worklog_file_name') or wl.get('file_name') or DEFAULT_USER_MAPPING['fa_work_log']['file_name']).strip()
+                wl['sheet_name'] = (request.form.get('worklog_sheet_name') or wl.get('sheet_name') or DEFAULT_USER_MAPPING['fa_work_log']['sheet_name']).strip()
+                wl['start_row'] = int(request.form.get('worklog_start_row', wl.get('start_row', DEFAULT_USER_MAPPING['fa_work_log']['start_row'])))
+                wl['sn_col_index'] = int(request.form.get('worklog_sn_col_index', wl.get('sn_col_index', DEFAULT_USER_MAPPING['fa_work_log']['sn_col_index'])))
+                wl['wo_col_index'] = int(request.form.get('worklog_wo_col_index', wl.get('wo_col_index', DEFAULT_USER_MAPPING['fa_work_log']['wo_col_index'])))
+
+                mapping['bonepile'] = bp
+                mapping['fa_work_log'] = wl
+                save_user_mapping(mapping)
+                flash('Settings saved successfully.')
+            except Exception as e:
+                flash(f'Error saving settings: {e}')
+
+            return redirect(url_for('upload_file') + '#settings')
+
+        # ---- Upload files (default) ----
         uploaded_files = []
-        
+
         # Handle NV_IGS_VR144_Bonepile.xlsx
         if 'file_bonepile' in request.files:
             file = request.files['file_bonepile']
@@ -1561,7 +1974,7 @@ def upload_file():
                 filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(filepath)
                 uploaded_files.append('NV_IGS_VR144_Bonepile.xlsx')
-        
+
         # Handle FA_Work_Log.xlsx
         if 'file_fa_work_log' in request.files:
             file = request.files['file_fa_work_log']
@@ -1570,15 +1983,23 @@ def upload_file():
                 filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(filepath)
                 uploaded_files.append('FA_Work_Log.xlsx')
-        
+
         if uploaded_files:
             flash(f'Files uploaded successfully: {", ".join(uploaded_files)}')
         else:
             flash('No valid files uploaded. Please upload .xlsx or .xls files.')
-        
+
         return redirect(url_for('index'))
-    
-    return render_template('upload.html', ip=get_local_ip())
+
+    mapping = load_user_mapping()
+    ctx = build_mapping_context(mapping)
+    return render_template('upload.html', ip=get_local_ip(), **ctx)
+
+
+@app.route('/settings', methods=['GET', 'POST'])
+def settings():
+    # Backwards-compatible endpoint: settings now lives inside /upload
+    return redirect(url_for('upload_file') + '#settings')
 
 @app.route('/api/sn-list/<category>')
 def get_sn_list(category):
