@@ -1665,7 +1665,12 @@ def load_data(filename=None):
     ]
     
     # In process dispositions (only for IGS records)
-    fail_with_action = fail_igs_records[~fail_igs_records[sn_col].isin(set(fail_with_empty_action[sn_col].unique())) if len(fail_with_empty_action) > 0 else fail_igs_records]
+    # NOTE: Avoid DataFrame-as-mask bug when fail_with_empty_action is empty.
+    if len(fail_with_empty_action) > 0:
+        mask_has_action = ~fail_igs_records[sn_col].isin(set(fail_with_empty_action[sn_col].unique()))
+        fail_with_action = fail_igs_records[mask_has_action]
+    else:
+        fail_with_action = fail_igs_records.copy()
     
     if igs_status_col and igs_status_col in fail_with_action.columns and len(fail_with_action) > 0:
         in_process_records = fail_with_action[
