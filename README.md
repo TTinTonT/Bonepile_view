@@ -1,6 +1,6 @@
-# VR-TS1 Bonepile Statistics Dashboard
+# VR-TS Bonepile Statistics Dashboard
 
-Web-based dashboard for VR-TS1 Bonepile statistics with interactive charts and detailed views.
+Web-based dashboard for VR-TS Bonepile statistics (supports multiple VR-TS* sheets) with interactive charts and detailed views.
 
 ## Features
 

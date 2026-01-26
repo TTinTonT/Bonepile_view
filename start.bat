@@ -1,6 +1,6 @@
 @echo off
 echo ========================================
-echo VR-TS1 Bonepile Statistics Dashboard
+echo VR-TS Bonepile Statistics Dashboard
 echo ========================================
 echo.
 echo Starting server...

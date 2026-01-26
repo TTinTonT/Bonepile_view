@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VR-TS1 Bonepile Statistics Report</title>
+    <title>VR Bonepile Statistics Report</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * {
@@ -221,7 +221,7 @@
             <div class="header-row">
                 <div class="header-left">
                     <div>
-                        <h1 style="margin: 0;">VR-TS1 Bonepile Dashboard</h1>
+                        <h1 style="margin: 0;">VR Bonepile Dashboard</h1>
                         <div class="subtitle">IGS Test Results Analyzer • Real-time log insights</div>
                     </div>
                 </div>
@@ -252,7 +252,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <div>
                 <p><strong>Generated:</strong> <span id="generated-time"></span></p>
-                <p><strong>Source:</strong> NV_IGS_VR144_Bonepile.xlsx - Sheet VR-TS1</p>
+                <p><strong>Source:</strong> NV_IGS_VR144_Bonepile.xlsx - Sheets {{ (selected_sheets | join(', ')) if selected_sheets else '(not selected)' }}</p>
                 <p><strong>Server IP:</strong> <span style="font-family: monospace; background: #f0f0f0; padding: 2px 8px; border-radius: 3px;">{{ ip }}</span></p>
             </div>
         </div>

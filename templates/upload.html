@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upload Excel File - VR-TS1 Statistics</title>
+    <title>Upload Excel File - VR-TS Statistics</title>
     <style>
         * {
             margin: 0;
@@ -187,7 +187,7 @@
             </div>
             <div id="infoPanelContent" style="margin-top: 14px; display: none; color: var(--text-secondary); line-height: 1.6;">
                 <ul style="margin: 0; padding-left: 20px;">
-                    <li><strong style="color: var(--text-primary);">NV_IGS_VR144_Bonepile.xlsx</strong>: main data source (uses sheet <strong>VR-TS1</strong>) for Dashboard / Daily Test Analysis / Debug Comparison / Hourly Report.</li>
+                    <li><strong style="color: var(--text-primary);">NV_IGS_VR144_Bonepile.xlsx</strong>: main data source (supports <strong>VR-TS*</strong> sheets) for Dashboard / Daily Test Analysis / Debug Comparison / Hourly Report.</li>
                     <li><strong style="color: var(--text-primary);">FA_Work_Log.xlsx</strong>: optional mapping for <strong>WO</strong> (uses sheet <strong>Log</strong>, Column B = SN, Column C = WO). Enables WO grouping/filters on some pages.</li>
                     <li>After upload, metrics like <strong>SN Count</strong> (unique trays) and station/group statistics are derived from these files.</li>
                 </ul>
@@ -198,7 +198,7 @@
             <input type="hidden" name="form_type" value="upload">
             <div class="upload-area" style="margin-bottom: 20px;">
                 <p style="font-size: 18px; margin-bottom: 10px;">📁 NV_IGS_VR144_Bonepile.xlsx</p>
-                <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Main data file with VR-TS1 sheet</p>
+                <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Main data file with VR-TS* sheets (e.g., VR-TS1, VR-TS2...)</p>
                 <input type="file" name="file_bonepile" accept=".xlsx,.xls">
                 <p style="color: #666; font-size: 14px; margin-top: 10px;">
                     Supported formats: .xlsx, .xls
@@ -248,25 +248,50 @@
                                 <input type="text" name="bonepile_file_name" value="{{ mapping.bonepile.file_name }}">
                             </div>
                             <div>
-                                <label>Sheet</label>
-                                <select name="bonepile_sheet_name">
-                                    {% if bonepile_sheets %}
-                                        {% for s in bonepile_sheets %}
-                                            <option value="{{ s }}" {% if s == mapping.bonepile.sheet_name %}selected{% endif %}>{{ s }}</option>
-                                        {% endfor %}
-                                    {% else %}
-                                        <option value="{{ mapping.bonepile.sheet_name }}">{{ mapping.bonepile.sheet_name }}</option>
-                                    {% endif %}
-                                </select>
-                            </div>
-                            <div>
                                 <label>Header row (Excel row number)</label>
-                                <input type="number" name="bonepile_header_row" min="1" value="{{ bonepile_header_row_excel if bonepile_header_row_excel else mapping.bonepile.header_row_excel }}">
+                                <input type="number" name="bonepile_header_row" min="1" value="{{ bonepile_edit_header_row_excel if bonepile_edit_header_row_excel else bonepile_header_row_excel }}">
                             </div>
                         </div>
 
+                        <div style="margin-top: 12px;">
+                            <label>Included sheets (statistics will be computed using selected sheets only)</label>
+                            <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px;">
+                                {% if bonepile_sheets %}
+                                    {% for s in bonepile_sheets %}
+                                        <label style="display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--border-color); border-radius:6px;">
+                                            <input type="checkbox" name="bonepile_selected_sheets" value="{{ s }}"
+                                                {% if bonepile_selected_sheets and (s in bonepile_selected_sheets) %}checked{% endif %}>
+                                            <span style="font-family: monospace;">{{ s }}</span>
+                                        </label>
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="subtitle">Upload Bonepile file first to list sheets.</div>
+                                {% endif %}
+                            </div>
+                            <div class="subtitle" style="margin-top: 8px;">
+                                Default is <strong>VR-TS1</strong>. You can add VR-TS2/TS3... or uncheck VR-TS1 to run statistics for only the remaining sheets.
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 12px;">
+                            <label>Editing mapping for sheet</label>
+                            <div style="display:flex; gap:10px; align-items:center; margin-top: 8px;">
+                                <select id="bonepileEditSheetSelect">
+                                    {% if bonepile_sheets %}
+                                        {% for s in bonepile_sheets %}
+                                            <option value="{{ s }}" {% if s == bonepile_edit_sheet %}selected{% endif %}>{{ s }}</option>
+                                        {% endfor %}
+                                    {% else %}
+                                        <option value="{{ bonepile_edit_sheet }}">{{ bonepile_edit_sheet }}</option>
+                                    {% endif %}
+                                </select>
+                                <span class="subtitle">Switch sheet to edit its header row + column mapping.</span>
+                            </div>
+                            <input type="hidden" name="bonepile_edit_sheet" value="{{ bonepile_edit_sheet }}">
+                        </div>
+
                         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px;">
-                            {% set bp = mapping.bonepile.columns %}
+                            {% set bp = bonepile_edit_columns %}
                             {% for field, label, is_required in [
                                 ('sn','SN', true),
                                 ('result','Result/Status', true),
@@ -381,6 +406,18 @@
                         content.style.display = 'block';
                         toggle.style.transform = 'rotate(0deg)';
                     }
+                }
+            } catch (e) {}
+
+            // Change mapping editor sheet by reloading with ?edit_sheet=<name>#settings
+            try {
+                const sel = document.getElementById('bonepileEditSheetSelect');
+                if (sel) {
+                    sel.addEventListener('change', function() {
+                        const v = sel.value || '';
+                        const base = window.location.pathname || '/upload';
+                        window.location.href = base + '?edit_sheet=' + encodeURIComponent(v) + '#settings';
+                    });
                 }
             } catch (e) {}
         });

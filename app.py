@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Flask web application for VR-TS1 Bonepile Statistics
+Flask web application for VR-TS Bonepile Statistics (multi-sheet)
 """
 
 from flask import Flask, render_template, jsonify, request, redirect, url_for, flash
@@ -91,11 +91,101 @@ def load_user_mapping():
                             save_user_mapping(data)
                     except Exception:
                         pass
+                    # Migrate bonepile single-sheet mapping to per-sheet mapping
+                    try:
+                        bp = data.get('bonepile', {})
+                        if isinstance(bp, dict):
+                            has_new = isinstance(bp.get('sheets'), dict) or isinstance(bp.get('selected_sheets'), list)
+                            if not has_new:
+                                legacy_sheet = (bp.get('sheet_name') or DEFAULT_USER_MAPPING['bonepile']['sheet_name'] or '').strip()
+                                legacy_header_row_excel = get_bonepile_header_row_excel(bp)
+                                legacy_cols = bp.get('columns', DEFAULT_USER_MAPPING['bonepile']['columns']) or {}
+                                bp['selected_sheets'] = [legacy_sheet] if legacy_sheet else []
+                                bp['sheets'] = {}
+                                if legacy_sheet:
+                                    bp['sheets'][legacy_sheet] = {
+                                        "header_row_excel": int(legacy_header_row_excel),
+                                        "columns": legacy_cols,
+                                    }
+                                data['bonepile'] = bp
+                                save_user_mapping(data)
+                    except Exception:
+                        pass
                     return data
     except Exception:
         pass
     # Fallback to defaults if file missing or invalid
     return json.loads(json.dumps(DEFAULT_USER_MAPPING))
+
+
+def normalize_bonepile_mapping(bonepile_mapping):
+    """
+    Normalize bonepile mapping to support multi-sheet + per-sheet mappings.
+
+    Canonical shape:
+    {
+      "file_name": str,
+      "selected_sheets": [str, ...],
+      "sheets": {
+        "<sheet>": { "header_row_excel": int, "columns": { ... } }
+      }
+    }
+
+    Backward-compatible with legacy keys: sheet_name, header_row_excel/header_row, columns.
+    """
+    default_bp = DEFAULT_USER_MAPPING.get('bonepile', {}) or {}
+    bp = bonepile_mapping if isinstance(bonepile_mapping, dict) else {}
+
+    file_name = (bp.get('file_name') or default_bp.get('file_name') or '').strip()
+    legacy_sheet = (bp.get('sheet_name') or default_bp.get('sheet_name') or '').strip()
+    legacy_header_row_excel = get_bonepile_header_row_excel(bp)
+    legacy_cols = bp.get('columns', default_bp.get('columns')) or {}
+
+    selected = bp.get('selected_sheets')
+    if isinstance(selected, str):
+        selected = [selected]
+    if not isinstance(selected, list):
+        selected = []
+    selected_sheets = [str(s).strip() for s in selected if str(s).strip()]
+
+    sheets_cfg = bp.get('sheets')
+    if not isinstance(sheets_cfg, dict):
+        sheets_cfg = {}
+
+    # Ensure legacy sheet exists in per-sheet configs (as a baseline)
+    if legacy_sheet and legacy_sheet not in sheets_cfg:
+        sheets_cfg[legacy_sheet] = {
+            "header_row_excel": int(legacy_header_row_excel),
+            "columns": json.loads(json.dumps(legacy_cols)),
+        }
+
+    # Default selection
+    if not selected_sheets:
+        selected_sheets = [legacy_sheet] if legacy_sheet else []
+
+    # Ensure each selected sheet has a usable config
+    for s in list(selected_sheets):
+        if s not in sheets_cfg or not isinstance(sheets_cfg.get(s), dict):
+            sheets_cfg[s] = {}
+        sc = sheets_cfg.get(s) or {}
+        if sc.get('header_row_excel') is None:
+            sc['header_row_excel'] = int(legacy_header_row_excel)
+        else:
+            try:
+                sc['header_row_excel'] = max(1, int(sc.get('header_row_excel')))
+            except Exception:
+                sc['header_row_excel'] = int(legacy_header_row_excel)
+        cols = sc.get('columns')
+        if not isinstance(cols, dict) or not cols:
+            cols = json.loads(json.dumps(legacy_cols))
+        sc['columns'] = cols
+        sheets_cfg[s] = sc
+
+    return {
+        "file_name": file_name,
+        "selected_sheets": selected_sheets,
+        "sheets": sheets_cfg,
+    }
 
 
 def get_bonepile_header_row_excel(bonepile_mapping):
@@ -362,8 +452,8 @@ def extract_part_number_from_filename(filename):
     """
     name = filename.replace('.zip', '')
     
-    # Pattern 1: PB-XXXX_XXX-XXXXX-XXXX-TS1 (full pattern with PB prefix)
-    pattern1 = r'PB-\d+_(\d+-\d+-\d+-TS1)'
+    # Pattern 1: PB-XXXX_XXX-XXXXX-XXXX-TS<NUM> (full pattern with PB prefix)
+    pattern1 = r'PB-\d+_(\d+-\d+-\d+-TS\d+)'
     match1 = re.search(pattern1, name)
     if match1:
         return match1.group(1)  # Chỉ lấy phần sau PB-xxxxx_
@@ -374,8 +464,8 @@ def extract_part_number_from_filename(filename):
     if match2:
         return match2.group(1)  # Chỉ lấy phần sau PB-xxxxx_
     
-    # Pattern 3: XXX-XXXXX-XXXX-TS1 (without PB prefix - giữ nguyên)
-    pattern3 = r'(\d+-\d+-\d+-TS1)'
+    # Pattern 3: XXX-XXXXX-XXXX-TS<NUM> (without PB prefix - giữ nguyên)
+    pattern3 = r'(\d+-\d+-\d+-TS\d+)'
     match3 = re.search(pattern3, name)
     if match3:
         return match3.group(1)
@@ -1028,86 +1118,112 @@ def load_bonepile_list():
     """Load Bonepile Excel and return dict mapping SN -> fail_time (datetime or None)."""
     bonepile_fail_time = {}  # {sn: fail_time (datetime|None)}
 
-    mapping = load_user_mapping().get('bonepile', {})
-    file_name = mapping.get('file_name', DEFAULT_USER_MAPPING['bonepile']['file_name'])
-    sheet_name = mapping.get('sheet_name', DEFAULT_USER_MAPPING['bonepile']['sheet_name'])
-    header_row_excel = get_bonepile_header_row_excel(mapping)
-    header_row = bonepile_header_row_0_based(mapping)
-    columns = mapping.get('columns', {}) or {}
+    raw_mapping = load_user_mapping().get('bonepile', {})
+    bp = normalize_bonepile_mapping(raw_mapping)
+    file_name = bp.get('file_name', DEFAULT_USER_MAPPING['bonepile']['file_name'])
+    selected_sheets = bp.get('selected_sheets') or []
+    sheets_cfg = bp.get('sheets') or {}
 
     bonepile_file = resolve_uploaded_or_local_path(file_name)
     if not bonepile_file:
         return bonepile_fail_time
     
+    if not selected_sheets:
+        raise SchemaError(
+            "Bonepile mapping error: no sheets selected. Please update mapping in Upload.",
+            details={"file": file_name, "available_sheets": list_excel_sheets(bonepile_file)},
+        )
+
     try:
-        df = pd.read_excel(bonepile_file, sheet_name=sheet_name, header=header_row)
+        for sheet_name in selected_sheets:
+            sc = sheets_cfg.get(sheet_name, {}) if isinstance(sheets_cfg, dict) else {}
+            header_row_excel = int(sc.get('header_row_excel') or DEFAULT_USER_MAPPING['bonepile']['header_row_excel'])
+            header_row = max(0, header_row_excel - 1)
+            columns = sc.get('columns', {}) if isinstance(sc.get('columns', {}), dict) else {}
+            try:
+                df = pd.read_excel(bonepile_file, sheet_name=sheet_name, header=header_row)
+            except Exception as e:
+                raise SchemaError(
+                    f"Bonepile mapping error: failed to read sheet '{sheet_name}' (header row={header_row_excel}). Please update mapping in Upload. ({e})",
+                    details={"file": file_name, "sheet": sheet_name, "header_row_excel": header_row_excel, "header_row": header_row},
+                )
 
-        sn_col = resolve_df_column(df, columns.get('sn'))
-        fail_time_col = resolve_df_column(df, columns.get('fail_time'))
+            sn_col = resolve_df_column(df, columns.get('sn'))
+            fail_time_col = resolve_df_column(df, columns.get('fail_time'))
 
-        if not sn_col:
-            raise SchemaError(
-                f"Bonepile mapping error: SN column not found. Please update mapping in Upload.",
-                details={
-                    "file": file_name,
-                    "sheet": sheet_name,
-                    "header_row_excel": header_row_excel,
-                    "header_row": header_row,
-                    "expected": {"sn": columns.get('sn')},
-                    "available_columns": [str(c) for c in list(df.columns)],
-                },
-            )
-        
-        # Remove duplicate header
-        if len(df) > 0 and sn_col in df.columns:
-            if str(df.iloc[0][sn_col]).strip() == 'sn':
-                df = df.iloc[1:].reset_index(drop=True)
-        
-        # Filter valid SNs
-        valid_sn_records = df[df[sn_col].apply(is_valid_sn)].copy()
-        
-        # Get SN -> fail_time mapping
-        for idx, row in valid_sn_records.iterrows():
-            sn = row[sn_col]
-            if isinstance(sn, (int, float)):
-                sn_str = str(int(sn))
-            else:
-                sn_str = str(sn).strip().replace('.0', '')
+            if not sn_col:
+                raise SchemaError(
+                    f"Bonepile mapping error: SN column not found for sheet '{sheet_name}'. Please update mapping in Upload.",
+                    details={
+                        "file": file_name,
+                        "sheet": sheet_name,
+                        "header_row_excel": header_row_excel,
+                        "header_row": header_row,
+                        "expected": {"sn": columns.get('sn')},
+                        "available_columns": [str(c) for c in list(df.columns)],
+                    },
+                )
             
-            if not sn_str:
-                continue
-            
-            # Get fail_time (optional)
-            fail_time = row.get(fail_time_col) if fail_time_col else None
-            
-            # Parse fail_time to datetime
-            fail_time_dt = None
-            if pd.notna(fail_time):
+            # Remove duplicate header
+            if len(df) > 0 and sn_col in df.columns:
                 try:
-                    # Try to parse as datetime
-                    if isinstance(fail_time, datetime):
-                        fail_time_dt = fail_time
-                    elif isinstance(fail_time, str):
-                        # Try various date formats
-                        for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S']:
-                            try:
-                                fail_time_dt = datetime.strptime(fail_time.strip(), fmt)
-                                break
-                            except ValueError:
-                                continue
-                    elif isinstance(fail_time, (int, float)):
-                        # Excel serial date number
-                        try:
-                            fail_time_dt = pd.to_datetime(fail_time, origin='1899-12-30', unit='D')
-                            if isinstance(fail_time_dt, pd.Timestamp):
-                                fail_time_dt = fail_time_dt.to_pydatetime()
-                        except:
-                            pass
+                    if str(df.iloc[0][sn_col]).strip().lower() == 'sn':
+                        df = df.iloc[1:].reset_index(drop=True)
                 except Exception:
                     pass
             
-            # Store mapping (store SN even when fail_time missing)
-            bonepile_fail_time[sn_str] = fail_time_dt
+            # Filter valid SNs
+            valid_sn_records = df[df[sn_col].apply(is_valid_sn)].copy()
+            
+            # Get SN -> fail_time mapping
+            for idx, row in valid_sn_records.iterrows():
+                sn = row[sn_col]
+                if isinstance(sn, (int, float)):
+                    sn_str = str(int(sn))
+                else:
+                    sn_str = str(sn).strip().replace('.0', '')
+                
+                if not sn_str:
+                    continue
+                
+                # Get fail_time (optional)
+                fail_time = row.get(fail_time_col) if fail_time_col else None
+                
+                # Parse fail_time to datetime
+                fail_time_dt = None
+                if pd.notna(fail_time):
+                    try:
+                        # Try to parse as datetime
+                        if isinstance(fail_time, datetime):
+                            fail_time_dt = fail_time
+                        elif isinstance(fail_time, str):
+                            # Try various date formats
+                            for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S']:
+                                try:
+                                    fail_time_dt = datetime.strptime(fail_time.strip(), fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                        elif isinstance(fail_time, (int, float)):
+                            # Excel serial date number
+                            try:
+                                fail_time_dt = pd.to_datetime(fail_time, origin='1899-12-30', unit='D')
+                                if isinstance(fail_time_dt, pd.Timestamp):
+                                    fail_time_dt = fail_time_dt.to_pydatetime()
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                
+                # Merge strategy: prefer a non-null fail_time; if both present, keep the earliest
+                if sn_str in bonepile_fail_time:
+                    existing = bonepile_fail_time.get(sn_str)
+                    if existing is None and fail_time_dt is not None:
+                        bonepile_fail_time[sn_str] = fail_time_dt
+                    elif existing is not None and fail_time_dt is not None:
+                        bonepile_fail_time[sn_str] = min(existing, fail_time_dt)
+                else:
+                    bonepile_fail_time[sn_str] = fail_time_dt
     except SchemaError:
         raise
     except Exception as e:
@@ -1481,57 +1597,97 @@ def load_data(filename=None):
     if not os.path.exists(excel_file):
         return None
     
-    sheet_name = bonepile_mapping.get('sheet_name', default_bonepile_mapping['sheet_name'])
-    header_row_excel = get_bonepile_header_row_excel(bonepile_mapping)
-    header_row = bonepile_header_row_0_based(bonepile_mapping)
-    configured_cols = bonepile_mapping.get('columns', default_bonepile_mapping['columns']) or {}
+    bp = normalize_bonepile_mapping(bonepile_mapping)
+    selected_sheets = bp.get('selected_sheets') or []
+    sheets_cfg = bp.get('sheets') or {}
 
-    try:
-        df = pd.read_excel(excel_file, sheet_name=sheet_name, header=header_row)
-    except Exception as e:
-        # Provide a friendly mapping error (wrong sheet/header)
+    if not selected_sheets:
         raise SchemaError(
-            f"Bonepile mapping error: failed to read sheet '{sheet_name}' (header row={header_row_excel}). Please update mapping in Upload. ({e})",
-            details={"file": excel_file, "sheet": sheet_name, "header_row_excel": header_row_excel, "header_row": header_row},
+            "Bonepile mapping error: no sheets selected. Please update mapping in Upload.",
+            details={"file": excel_file, "available_sheets": list_excel_sheets(excel_file)},
         )
 
-    # Resolve required columns from saved mapping (exact, but case/whitespace tolerant)
-    sn_col = resolve_df_column(df, configured_cols.get('sn'))
-    pic_col = resolve_df_column(df, configured_cols.get('pic'))
-    result_col = resolve_df_column(df, configured_cols.get('result'))
-    igs_action_col = resolve_df_column(df, configured_cols.get('igs_action'))
-    igs_status_col = resolve_df_column(df, configured_cols.get('igs_status'))
-    bp_duration_col = resolve_df_column(df, configured_cols.get('bp_duration'))
-    nv_disposition_col = resolve_df_column(df, configured_cols.get('nv_disposition'))
+    normalized_frames = []
+    for sheet_name in selected_sheets:
+        sc = sheets_cfg.get(sheet_name, {}) if isinstance(sheets_cfg, dict) else {}
+        header_row_excel = int(sc.get('header_row_excel') or default_bonepile_mapping.get('header_row_excel', 2))
+        header_row = max(0, header_row_excel - 1)
+        configured_cols = sc.get('columns', {}) if isinstance(sc.get('columns', {}), dict) else {}
 
-    required = {
-        "sn": sn_col,
-        "result": result_col,
-        "pic": pic_col,
-        "nv_disposition": nv_disposition_col,
-        "igs_action": igs_action_col,
-        "igs_status": igs_status_col,
-        "bp_duration": bp_duration_col,
-    }
-    missing = [k for k, v in required.items() if not v]
-    if missing:
-        raise SchemaError(
-            f"Bonepile mapping error: missing required columns {missing}. Please update mapping in Upload.",
-            details={
-                "file": excel_file,
-                "sheet": sheet_name,
-                "header_row_excel": header_row_excel,
-                "header_row": header_row,
-                "expected": {k: configured_cols.get(k) for k in missing},
-                "configured_columns": configured_cols,
-                "available_columns": [str(c) for c in list(df.columns)],
-            },
-        )
-    
-    # Remove duplicate header
-    if len(df) > 0 and sn_col in df.columns:
-        if str(df.iloc[0][sn_col]).strip() == 'sn':
-            df = df.iloc[1:].reset_index(drop=True)
+        try:
+            df_sheet = pd.read_excel(excel_file, sheet_name=sheet_name, header=header_row)
+        except Exception as e:
+            raise SchemaError(
+                f"Bonepile mapping error: failed to read sheet '{sheet_name}' (header row={header_row_excel}). Please update mapping in Upload. ({e})",
+                details={"file": excel_file, "sheet": sheet_name, "header_row_excel": header_row_excel, "header_row": header_row},
+            )
+
+        # Resolve required columns from saved mapping (exact, but case/whitespace tolerant)
+        sn_col = resolve_df_column(df_sheet, configured_cols.get('sn'))
+        pic_col = resolve_df_column(df_sheet, configured_cols.get('pic'))
+        result_col = resolve_df_column(df_sheet, configured_cols.get('result'))
+        igs_action_col = resolve_df_column(df_sheet, configured_cols.get('igs_action'))
+        igs_status_col = resolve_df_column(df_sheet, configured_cols.get('igs_status'))
+        bp_duration_col = resolve_df_column(df_sheet, configured_cols.get('bp_duration'))
+        nv_disposition_col = resolve_df_column(df_sheet, configured_cols.get('nv_disposition'))
+        fail_time_col = resolve_df_column(df_sheet, configured_cols.get('fail_time'))
+
+        required = {
+            "sn": sn_col,
+            "result": result_col,
+            "pic": pic_col,
+            "nv_disposition": nv_disposition_col,
+            "igs_action": igs_action_col,
+            "igs_status": igs_status_col,
+            "bp_duration": bp_duration_col,
+        }
+        missing = [k for k, v in required.items() if not v]
+        if missing:
+            raise SchemaError(
+                f"Bonepile mapping error: missing required columns {missing} for sheet '{sheet_name}'. Please update mapping in Upload.",
+                details={
+                    "file": excel_file,
+                    "sheet": sheet_name,
+                    "header_row_excel": header_row_excel,
+                    "header_row": header_row,
+                    "expected": {k: configured_cols.get(k) for k in missing},
+                    "configured_columns": configured_cols,
+                    "available_columns": [str(c) for c in list(df_sheet.columns)],
+                },
+            )
+
+        # Remove duplicate header
+        if len(df_sheet) > 0 and sn_col in df_sheet.columns:
+            try:
+                if str(df_sheet.iloc[0][sn_col]).strip().lower() == 'sn':
+                    df_sheet = df_sheet.iloc[1:].reset_index(drop=True)
+            except Exception:
+                pass
+
+        # Normalize to canonical columns so downstream logic is sheet-agnostic
+        df_norm = pd.DataFrame({
+            "sn": df_sheet[sn_col],
+            "result": df_sheet[result_col],
+            "pic": df_sheet[pic_col],
+            "nv_disposition": df_sheet[nv_disposition_col],
+            "igs_action": df_sheet[igs_action_col],
+            "igs_status": df_sheet[igs_status_col],
+            "bp_duration": df_sheet[bp_duration_col],
+            "fail_time": df_sheet[fail_time_col] if fail_time_col else None,
+        })
+        df_norm["source_sheet"] = sheet_name
+        normalized_frames.append(df_norm)
+
+    df = pd.concat(normalized_frames, ignore_index=True) if normalized_frames else pd.DataFrame()
+
+    # Canonical column names (used throughout)
+    sn_col = "sn"
+    pic_col = "pic"
+    result_col = "result"
+    igs_action_col = "igs_action"
+    igs_status_col = "igs_status"
+    bp_duration_col = "bp_duration"
+    nv_disposition_col = "nv_disposition"
     
     # Filter valid SN
     valid_sn_records = df[df[sn_col].apply(is_valid_sn)].copy()
@@ -1733,6 +1889,7 @@ def load_data(filename=None):
     
     return {
         'df': valid_sn_records,
+        'selected_sheets': selected_sheets,
         'unique_sns': unique_sns,
         'unique_fail_sns': unique_fail_sns,
         'unique_pass_sns': unique_pass_sns,
@@ -1813,10 +1970,22 @@ def index():
         stats['std_duration'] = float(np.std(bp_durations)) if bp_durations else 0.0
         stats['duration_count'] = len(bp_durations)
         
-        return render_template('index.html', stats=stats, error=None, ip=get_local_ip())
+        return render_template(
+            'index.html',
+            stats=stats,
+            error=None,
+            ip=get_local_ip(),
+            selected_sheets=data.get('selected_sheets') if isinstance(data, dict) else None,
+        )
     except SchemaError as e:
         msg = f"{str(e)}"
-        return render_template('index.html', stats=None, error=msg, error_details=getattr(e, 'details', None), ip=get_local_ip())
+        return render_template(
+            'index.html',
+            stats=None,
+            error=msg,
+            error_details=getattr(e, 'details', None),
+            ip=get_local_ip(),
+        )
     except Exception as e:
         return render_template('index.html', stats=None, error=f"Error loading data: {str(e)}", ip=get_local_ip())
 
@@ -1832,18 +2001,45 @@ def upload_file():
 
         bonepile_path = resolve_uploaded_or_local_path(current_mapping['bonepile'].get('file_name', DEFAULT_USER_MAPPING['bonepile']['file_name']))
         bonepile_sheets = list_excel_sheets(bonepile_path) if bonepile_path else []
-        if bonepile_sheets and current_mapping['bonepile'].get('sheet_name') not in bonepile_sheets:
-            current_mapping['bonepile']['sheet_name'] = bonepile_sheets[0]
+
+        # Normalize to multi-sheet mapping (without persisting on GET)
+        bp_norm = normalize_bonepile_mapping(current_mapping.get('bonepile', {}))
+        selected_sheets = bp_norm.get('selected_sheets') or []
+        sheets_cfg = bp_norm.get('sheets') or {}
+
+        # Filter invalid selections if workbook is available
+        if bonepile_sheets:
+            selected_sheets = [s for s in selected_sheets if s in bonepile_sheets]
+
+        # Default selection: prefer VR-TS1 if present
+        if bonepile_sheets and not selected_sheets:
+            selected_sheets = ['VR-TS1'] if 'VR-TS1' in bonepile_sheets else [bonepile_sheets[0]]
+
+        # Editing sheet (which mapping panel shows)
+        edit_sheet = (request.args.get('edit_sheet') or '').strip()
+        if not edit_sheet:
+            edit_sheet = selected_sheets[0] if selected_sheets else (bonepile_sheets[0] if bonepile_sheets else (bp_norm.get('selected_sheets') or [''])[0])
+        if bonepile_sheets and edit_sheet not in bonepile_sheets:
+            edit_sheet = bonepile_sheets[0]
+
+        # Ensure edit sheet has a config
+        if edit_sheet and edit_sheet not in sheets_cfg:
+            # Seed from legacy defaults
+            legacy = current_mapping.get('bonepile', {}) or {}
+            sheets_cfg[edit_sheet] = {
+                "header_row_excel": get_bonepile_header_row_excel(legacy),
+                "columns": json.loads(json.dumps(legacy.get('columns', DEFAULT_USER_MAPPING['bonepile']['columns']) or {})),
+            }
+        edit_cfg = sheets_cfg.get(edit_sheet, {}) if isinstance(sheets_cfg, dict) else {}
+        edit_header_row_excel = int(edit_cfg.get('header_row_excel') or DEFAULT_USER_MAPPING['bonepile']['header_row_excel'])
+        edit_header_row = max(0, edit_header_row_excel - 1)
+
         bonepile_header_errors = []
         bonepile_headers = []
-        if bonepile_path:
-            bp_sheet = current_mapping['bonepile'].get('sheet_name', DEFAULT_USER_MAPPING['bonepile']['sheet_name'])
-            bp_header_row_excel = get_bonepile_header_row_excel(current_mapping['bonepile'])
-            bp_header_row = bonepile_header_row_0_based(current_mapping['bonepile'])
-
+        if bonepile_path and edit_sheet:
             # 1) openpyxl header row -> includes index labels
             try:
-                bonepile_headers = get_excel_header_values(bonepile_path, bp_sheet, bp_header_row)
+                bonepile_headers = get_excel_header_values(bonepile_path, edit_sheet, edit_header_row)
             except Exception as e:
                 bonepile_header_errors.append(f"openpyxl header read failed: {e}")
 
@@ -1851,7 +2047,7 @@ def upload_file():
             if not bonepile_headers:
                 try:
                     from openpyxl.utils import get_column_letter
-                    cols = get_pandas_columns(bonepile_path, bp_sheet, bp_header_row)
+                    cols = get_pandas_columns(bonepile_path, edit_sheet, edit_header_row)
                     bonepile_headers = [{
                         "value": f"__idx__{c['index']}",
                         "name": c.get("name", ""),
@@ -1865,7 +2061,7 @@ def upload_file():
             if not bonepile_headers:
                 try:
                     from openpyxl.utils import get_column_letter
-                    max_col = get_excel_sheet_max_column(bonepile_path, bp_sheet)
+                    max_col = get_excel_sheet_max_column(bonepile_path, edit_sheet)
                     max_col = min(int(max_col or 0), 200)
                     bonepile_headers = [{
                         "value": f"__idx__{i}",
@@ -1876,10 +2072,9 @@ def upload_file():
                 except Exception as e:
                     bonepile_header_errors.append(f"index fallback failed: {e}")
 
-        # Normalize configured column selections to match actual header casing (preselect defaults)
+        # Normalize configured column selections (name -> __idx__N) for the editing sheet only
         try:
-            bp_cols = (current_mapping.get('bonepile', {}).get('columns') or {})
-            # Prefer converting old "name-based" mappings to __idx__N when possible
+            edit_cols = (edit_cfg.get('columns') or {}) if isinstance(edit_cfg, dict) else {}
             first_idx_by_name = {}
             for h in bonepile_headers:
                 n = str(h.get('name', '')).strip()
@@ -1888,7 +2083,7 @@ def upload_file():
                 key = n.lower()
                 if key not in first_idx_by_name:
                     first_idx_by_name[key] = h.get('value')
-            for k, v in list(bp_cols.items()):
+            for k, v in list(edit_cols.items()):
                 if not v:
                     continue
                 v_str = str(v).strip()
@@ -1896,10 +2091,21 @@ def upload_file():
                     continue
                 resolved_idx = first_idx_by_name.get(v_str.lower())
                 if resolved_idx:
-                    bp_cols[k] = resolved_idx
-            current_mapping['bonepile']['columns'] = bp_cols
+                    edit_cols[k] = resolved_idx
+            edit_cfg['columns'] = edit_cols
+            sheets_cfg[edit_sheet] = edit_cfg
         except Exception:
             pass
+
+        # Expose normalized mapping to the template (without persisting)
+        current_mapping['bonepile']['selected_sheets'] = selected_sheets
+        current_mapping['bonepile']['sheets'] = sheets_cfg
+        # Keep legacy keys as a convenience for older code paths
+        if edit_sheet:
+            current_mapping['bonepile']['sheet_name'] = edit_sheet
+            current_mapping['bonepile']['header_row_excel'] = edit_header_row_excel
+            current_mapping['bonepile']['header_row'] = max(0, edit_header_row_excel - 1)
+            current_mapping['bonepile']['columns'] = edit_cfg.get('columns', {}) if isinstance(edit_cfg, dict) else {}
 
         worklog_path = resolve_uploaded_or_local_path(current_mapping['fa_work_log'].get('file_name', DEFAULT_USER_MAPPING['fa_work_log']['file_name']))
         worklog_sheets = list_excel_sheets(worklog_path) if worklog_path else []
@@ -1925,9 +2131,13 @@ def upload_file():
             "mapping": current_mapping,
             "bonepile_path": bonepile_path,
             "bonepile_sheets": bonepile_sheets,
+            "bonepile_selected_sheets": selected_sheets,
+            "bonepile_edit_sheet": edit_sheet,
+            "bonepile_edit_header_row_excel": edit_header_row_excel,
+            "bonepile_edit_columns": (edit_cfg.get('columns') or {}) if isinstance(edit_cfg, dict) else {},
             "bonepile_headers": bonepile_headers,
             "bonepile_header_errors": bonepile_header_errors,
-            "bonepile_header_row_excel": get_bonepile_header_row_excel(current_mapping.get('bonepile', {})),
+            "bonepile_header_row_excel": edit_header_row_excel,
             "worklog_path": worklog_path,
             "worklog_sheets": worklog_sheets,
             "worklog_col_options": worklog_col_options,
@@ -1943,15 +2153,55 @@ def upload_file():
                 bp = mapping.get('bonepile') or json.loads(json.dumps(DEFAULT_USER_MAPPING['bonepile']))
                 wl = mapping.get('fa_work_log') or json.loads(json.dumps(DEFAULT_USER_MAPPING['fa_work_log']))
 
+                # ---- Bonepile (multi-sheet + per-sheet mapping) ----
+                bp_norm = normalize_bonepile_mapping(bp)
                 bp['file_name'] = (request.form.get('bonepile_file_name') or bp.get('file_name') or DEFAULT_USER_MAPPING['bonepile']['file_name']).strip()
-                bp['sheet_name'] = (request.form.get('bonepile_sheet_name') or bp.get('sheet_name') or DEFAULT_USER_MAPPING['bonepile']['sheet_name']).strip()
-                bp['header_row_excel'] = int(request.form.get('bonepile_header_row', bp.get('header_row_excel', DEFAULT_USER_MAPPING['bonepile']['header_row_excel'])))
-                # Keep backward-compat field in sync (0-based)
-                bp['header_row'] = max(0, int(bp['header_row_excel']) - 1)
-                bp_cols = bp.get('columns', {}) or {}
-                for field in ['sn', 'result', 'pic', 'nv_disposition', 'igs_action', 'igs_status', 'bp_duration', 'fail_time']:
-                    bp_cols[field] = (request.form.get(f'bonepile_col_{field}') or '').strip()
-                bp['columns'] = bp_cols
+
+                selected = request.form.getlist('bonepile_selected_sheets')
+                selected = [s.strip() for s in selected if s and str(s).strip()]
+
+                edit_sheet = (request.form.get('bonepile_edit_sheet') or '').strip()
+                if not edit_sheet and selected:
+                    edit_sheet = selected[0]
+
+                # If user unchecks everything, keep at least the sheet being edited (or previous selection)
+                if not selected:
+                    if edit_sheet:
+                        selected = [edit_sheet]
+                    else:
+                        prev = bp_norm.get('selected_sheets') or []
+                        selected = prev[:1] if prev else [DEFAULT_USER_MAPPING['bonepile']['sheet_name']]
+
+                bp_norm['selected_sheets'] = selected
+                if not isinstance(bp_norm.get('sheets'), dict):
+                    bp_norm['sheets'] = {}
+
+                # Update mapping for the sheet currently being edited
+                if edit_sheet:
+                    sc = bp_norm['sheets'].get(edit_sheet) or {}
+                    sc['header_row_excel'] = int(request.form.get(
+                        'bonepile_header_row',
+                        sc.get('header_row_excel', DEFAULT_USER_MAPPING['bonepile']['header_row_excel'])
+                    ))
+                    sc_cols = sc.get('columns', {}) if isinstance(sc.get('columns', {}), dict) else {}
+                    for field in ['sn', 'result', 'pic', 'nv_disposition', 'igs_action', 'igs_status', 'bp_duration', 'fail_time']:
+                        sc_cols[field] = (request.form.get(f'bonepile_col_{field}') or '').strip()
+                    sc['columns'] = sc_cols
+                    bp_norm['sheets'][edit_sheet] = sc
+
+                # Persist normalized multi-sheet mapping
+                bp['selected_sheets'] = bp_norm.get('selected_sheets') or []
+                bp['sheets'] = bp_norm.get('sheets') or {}
+
+                # Keep legacy single-sheet keys in sync (use the first selected sheet)
+                primary_sheet = (bp['selected_sheets'][0] if bp.get('selected_sheets') else edit_sheet) or DEFAULT_USER_MAPPING['bonepile']['sheet_name']
+                bp['sheet_name'] = primary_sheet
+                primary_cfg = (bp.get('sheets') or {}).get(primary_sheet, {}) if isinstance(bp.get('sheets'), dict) else {}
+                primary_header_row_excel = int(primary_cfg.get('header_row_excel') or DEFAULT_USER_MAPPING['bonepile']['header_row_excel'])
+                bp['header_row_excel'] = primary_header_row_excel
+                bp['header_row'] = max(0, primary_header_row_excel - 1)
+                primary_cols = primary_cfg.get('columns', {}) if isinstance(primary_cfg.get('columns', {}), dict) else {}
+                bp['columns'] = primary_cols
 
                 wl['file_name'] = (request.form.get('worklog_file_name') or wl.get('file_name') or DEFAULT_USER_MAPPING['fa_work_log']['file_name']).strip()
                 wl['sheet_name'] = (request.form.get('worklog_sheet_name') or wl.get('sheet_name') or DEFAULT_USER_MAPPING['fa_work_log']['sheet_name']).strip()
@@ -3466,7 +3716,7 @@ if __name__ == '__main__':
     local_ip = get_local_ip()
     port = 5001
     print("=" * 80)
-    print("VR-TS1 Bonepile Statistics Dashboard")
+    print("VR-TS Bonepile Statistics Dashboard")
     print("=" * 80)
     print(f"Starting server...")
     print(f"Local access: http://localhost:{port}")
