@@ -484,7 +484,7 @@
                 <h2>6. 1 Time Pass Rate by Part Number and WO</h2>
                 <div id="oneTimePassTable" style="overflow-x: auto; margin: 20px 0;"></div>
                 <p style="margin-top: 10px; color: #666; font-size: 14px;">
-                    Shows the percentage of SNs that passed all stations in one test (no retest) and passed RIN. Grouped by Part Number and WO.
+                    Shows the percentage of SNs that passed all stations in one test (no retest) and reached the Final Pass station. Final Pass station depends on Part Number (e.g., TS1=FCT, TS2=NVL). Grouped by Part Number and WO.
                 </p>
             </div>
             
@@ -910,8 +910,8 @@
             });
         }
         
-        // Station order: FLA > FLB > AST > FTS > FCT > RIN
-        const STATION_ORDER = ['FLA', 'FLB', 'AST', 'FTS', 'FCT', 'RIN'];
+        // Station order: FLA > FLB > AST > FTS > FCT > RIN > NVL
+        const STATION_ORDER = ['FLA', 'FLB', 'AST', 'FTS', 'FCT', 'RIN', 'NVL'];
         
         function sortStations(stations) {
             return stations.sort((a, b) => {

@@ -342,8 +342,9 @@ def get_local_ip():
     except:
         return "127.0.0.1"
 
-# Station order: FLA > FLB > AST > FTS > FCT > RIN
-STATION_ORDER = ['FLA', 'FLB', 'AST', 'FTS', 'FCT', 'RIN']
+# Station order: FLA > FLB > AST > FTS > FCT > RIN > NVL
+# Note: NVL is placed after RIN for TS2 flow.
+STATION_ORDER = ['FLA', 'FLB', 'AST', 'FTS', 'FCT', 'RIN', 'NVL']
 
 def sort_stations(stations):
     """
@@ -363,6 +364,66 @@ def sort_stations(stations):
         return sorted(list(stations), key=get_station_order)
     else:
         return stations
+
+
+def get_pass_station_for_part_number(part_number):
+    """
+    Determine which station counts as the final PASS station for a given part number.
+
+    Rules:
+    - If part number ends with/contains TS2 => final pass station is NVL
+    - Otherwise (TS1 and future TS3+ unless overridden) => final pass station is FCT
+    """
+    try:
+        pn = '' if part_number is None else str(part_number).strip().upper()
+    except Exception:
+        pn = ''
+    # Examples: "675-24109-0000-TS2" or "...-TS2"
+    if 'TS2' in pn:
+        return 'NVL'
+    return 'FCT'
+
+
+def is_final_pass_test_entry(test_entry, cutoff_date=None):
+    """
+    Return True if this test entry should be considered the "final pass" for the SN.
+
+    If part_number is present, use TS-based station rule.
+    If part_number is missing/Unknown, fall back to date-based legacy rule:
+    - Before 2026-01-01: PASS at RIN
+    - After  2026-01-01: PASS at FCT
+    """
+    if not isinstance(test_entry, dict):
+        return False
+    if test_entry.get('status') != 'P':
+        return False
+
+    station = str(test_entry.get('station') or '').strip().upper()
+    part_number = test_entry.get('part_number')
+    pn = '' if part_number is None else str(part_number).strip()
+
+    if pn and pn.lower() != 'unknown':
+        return station == get_pass_station_for_part_number(pn)
+
+    # Legacy fallback when part_number is not available
+    if cutoff_date is None:
+        cutoff_date = datetime(2026, 1, 1).date()
+    test_date = test_entry.get('date')
+    if isinstance(test_date, datetime):
+        test_date = test_date.date()
+    elif isinstance(test_date, pd.Timestamp):
+        test_date = test_date.to_pydatetime().date()
+    elif isinstance(test_date, str):
+        try:
+            test_date = datetime.strptime(test_date, '%Y-%m-%d').date()
+        except Exception:
+            test_date = None
+    if not isinstance(test_date, date):
+        test_date = cutoff_date
+
+    if test_date >= cutoff_date:
+        return station == 'FCT'
+    return station == 'RIN'
 
 # Function to check valid SN
 def is_valid_sn(sn):
@@ -804,29 +865,12 @@ def load_daily_test_data(start_date, end_date):
                                 date_part_station_stats[part_number][station]['pass'] += 1
                                 date_part_stats[part_number]['pass'] += 1
                                 
-                                # Determine pass based on date and station
-                                # After 2026-01-01: pass FCT = pass (all WOs)
-                                # Before 2026-01-01: only pass RIN = pass
-                                test_date = test_entry.get('date', current_date)
-                                # Ensure test_date is a date object
-                                if isinstance(test_date, datetime):
-                                    test_date = test_date.date()
-                                elif not isinstance(test_date, date):
-                                    test_date = current_date
+                                # Determine PASS based on part number (TS1/TS2) and station.
+                                # Keep legacy fallback when part_number is missing.
                                 cutoff_date = datetime(2026, 1, 1).date()
-                                
-                                if station == 'RIN':
+                                if is_final_pass_test_entry(test_entry, cutoff_date=cutoff_date):
                                     date_pass_rin.add(sn_normalized)
                                     sn_pass_rin.add(sn_normalized)
-                                elif station == 'FCT':
-                                    # After 2026: pass FCT = pass
-                                    if test_date >= cutoff_date:
-                                        date_pass_rin.add(sn_normalized)
-                                        sn_pass_rin.add(sn_normalized)
-                                    # Before 2026: only WO 3300001 passes if FCT passes
-                                    elif wo == '3300001':
-                                        date_pass_rin.add(sn_normalized)
-                                        sn_pass_rin.add(sn_normalized)
             except (OSError, PermissionError):
                 # Network path not accessible, skip this date
                 pass
@@ -1477,42 +1521,21 @@ def load_hourly_report_data(start_datetime, end_datetime):
             details['last_pass_time'] = None
             continue
         
-        # Check pass/fail based on rule
-        # After 2026-01-01: pass FCT = pass (check all tests in time range)
-        # Before 2026-01-01: only pass RIN = pass
+        # Check pass/fail based on rule:
+        # - TS1: final pass at FCT
+        # - TS2: final pass at NVL
+        # - Fallback (no part_number): legacy date-based rule
         is_pass = False
         last_pass_time = None
         
         for test in tests:
-            test_date = test.get('date', start_date)
-            # Ensure test_date is a date object
-            if isinstance(test_date, datetime):
-                test_date = test_date.date()
-            elif isinstance(test_date, str):
-                test_date = datetime.strptime(test_date, '%Y-%m-%d').date()
-            elif isinstance(test_date, pd.Timestamp):
-                test_date = test_date.to_pydatetime().date()
-            elif not isinstance(test_date, date):
-                test_date = start_date
-            
-            if test_date >= cutoff_date:
-                # New rule: pass FCT = all pass
-                if test['station'] == 'FCT' and test['status'] == 'P':
-                    is_pass = True
-                    # Track the latest pass time
-                    test_time = test.get('test_time_ca')
-                    if test_time:
-                        if last_pass_time is None or test_time > last_pass_time:
-                            last_pass_time = test_time
-            else:
-                # Old rule: only pass if pass RIN
-                if test['station'] == 'RIN' and test['status'] == 'P':
-                    is_pass = True
-                    # Track the latest pass time
-                    test_time = test.get('test_time_ca')
-                    if test_time:
-                        if last_pass_time is None or test_time > last_pass_time:
-                            last_pass_time = test_time
+            if is_final_pass_test_entry(test, cutoff_date=cutoff_date):
+                is_pass = True
+                # Track the latest pass time
+                test_time = test.get('test_time_ca')
+                if test_time:
+                    if last_pass_time is None or test_time > last_pass_time:
+                        last_pass_time = test_time
         
         details['pass_fail'] = 'PASS' if is_pass else 'FAIL'
         details['last_pass_time'] = last_pass_time

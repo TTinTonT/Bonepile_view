@@ -415,13 +415,13 @@
                         <tr>
                             <th title="Date in YYYY-MM-DD format">Date</th>
                             <th class="nv-header" title="Total number of unique NV Debug SNs tested on this day">NV Debug - Total</th>
-                            <th class="nv-header" title="Number of NV Debug SNs that passed at RIN station on this day (with percentage)">NV Debug - Pass</th>
+                            <th class="nv-header" title="Number of NV Debug SNs that passed (with percentage).">NV Debug - Pass</th>
                             <th class="nv-header" title="Number of NV Debug SNs that failed on this day (with percentage)">NV Debug - Fail</th>
-                            <th class="nv-header" title="Number of NV Debug SNs that passed RIN station on this day (with percentage)">NV Debug - Pass RIN</th>
+                            <th class="nv-header" title="Number of NV Debug SNs that reached Final Pass station on this day (with percentage). Final Pass station depends on Part Number (e.g., TS1=FCT, TS2=NVL).">NV Debug - Final Pass</th>
                             <th class="igs-header" title="Total number of unique IGS Debug SNs tested on this day">IGS Debug - Total</th>
-                            <th class="igs-header" title="Number of IGS Debug SNs that passed at RIN station on this day (with percentage)">IGS Debug - Pass</th>
+                            <th class="igs-header" title="Number of IGS Debug SNs that passed (with percentage).">IGS Debug - Pass</th>
                             <th class="igs-header" title="Number of IGS Debug SNs that failed on this day (with percentage)">IGS Debug - Fail</th>
-                            <th class="igs-header" title="Number of IGS Debug SNs that passed RIN station on this day (with percentage)">IGS Debug - Pass RIN</th>
+                            <th class="igs-header" title="Number of IGS Debug SNs that reached Final Pass station on this day (with percentage). Final Pass station depends on Part Number (e.g., TS1=FCT, TS2=NVL).">IGS Debug - Final Pass</th>
                         </tr>
                     </thead>
                     <tbody id="dailyTableBody">
@@ -545,7 +545,7 @@
         function updateSummary(stats) {
             // NV Debug
             document.getElementById('nvTotal').textContent = stats.nv_debug.total;
-            // Pass = Pass RIN for summary boxes
+            // Pass = Final Pass for summary boxes (field name kept as pass_rin)
             document.getElementById('nvPass').textContent = stats.nv_debug.pass_rin;
             document.getElementById('nvPassPct').textContent = stats.nv_debug.pass_rin_pct + '%';
             document.getElementById('nvFail').textContent = stats.nv_debug.fail;
@@ -553,7 +553,7 @@
             
             // IGS Debug
             document.getElementById('igsTotal').textContent = stats.igs_debug.total;
-            // Pass = Pass RIN for summary boxes
+            // Pass = Final Pass for summary boxes (field name kept as pass_rin)
             document.getElementById('igsPass').textContent = stats.igs_debug.pass_rin;
             document.getElementById('igsPassPct').textContent = stats.igs_debug.pass_rin_pct + '%';
             document.getElementById('igsFail').textContent = stats.igs_debug.fail;
@@ -818,7 +818,7 @@
                 const nvPassRinCell = row.insertCell(4);
                 nvPassRinCell.textContent = day.nv_debug.pass_rin + ' (' + day.nv_debug.pass_rin_pct + '%)';
                 nvPassRinCell.className = 'nv-section';
-                // Highlight if NV Pass RIN % is higher than IGS Pass RIN %
+                // Highlight if NV Final Pass % is higher than IGS Final Pass %
                 if (day.nv_debug.pass_rin_pct > day.igs_debug.pass_rin_pct) {
                     nvPassRinCell.classList.add('better-value');
                 }
@@ -847,7 +847,7 @@
                 const igsPassRinCell = row.insertCell(8);
                 igsPassRinCell.textContent = day.igs_debug.pass_rin + ' (' + day.igs_debug.pass_rin_pct + '%)';
                 igsPassRinCell.className = 'igs-section';
-                // Highlight if IGS Pass RIN % is higher than NV Pass RIN %
+                // Highlight if IGS Final Pass % is higher than NV Final Pass %
                 if (day.igs_debug.pass_rin_pct > day.nv_debug.pass_rin_pct) {
                     igsPassRinCell.classList.add('better-value', 'igs');
                 }
