@@ -193,30 +193,8 @@
                 </ul>
             </div>
         </div>
-        
-        <form method="POST" enctype="multipart/form-data">
-            <input type="hidden" name="form_type" value="upload">
-            <div class="upload-area" style="margin-bottom: 20px;">
-                <p style="font-size: 18px; margin-bottom: 10px;">📁 NV_IGS_VR144_Bonepile.xlsx</p>
-                <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Main data file with VR-TS* sheets (e.g., VR-TS1, VR-TS2...)</p>
-                <input type="file" name="file_bonepile" accept=".xlsx,.xls">
-                <p style="color: #666; font-size: 14px; margin-top: 10px;">
-                    Supported formats: .xlsx, .xls
-                </p>
-            </div>
-            
-            <div class="upload-area">
-                <p style="font-size: 18px; margin-bottom: 10px;">📁 FA_Work_Log.xlsx</p>
-                <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Work log file with Log sheet (Column B = SN, Column C = WO)</p>
-                <input type="file" name="file_fa_work_log" accept=".xlsx,.xls">
-                <p style="color: #666; font-size: 14px; margin-top: 10px;">
-                    Supported formats: .xlsx, .xls
-                </p>
-            </div>
-            
-            <button type="submit">Upload and Analyze</button>
-        </form>
 
+        <!-- Mapping first -->
         <div id="settings" style="margin-top: 26px;"></div>
         <div class="info-panel" style="margin-top: 18px;">
             <div onclick="toggleMappingPanel()" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
@@ -229,7 +207,13 @@
             <div id="mappingPanelContent" style="margin-top: 14px; display: none;">
                 <div class="info-box" style="margin: 0 0 15px 0;">
                     <strong>Saved to:</strong> <span style="font-family: monospace;">cache/user_mapping.json</span><br>
-                    If NV changes sheet/columns, update mapping here and click Save.
+                    <div style="margin-top: 6px;">
+                        <strong>Step 1:</strong> Tick the sheet(s) you want to include.<br>
+                        <strong>Step 2:</strong> Pick one sheet in <strong>Editing mapping for sheet</strong> and map its columns.<br>
+                        <strong>Step 3:</strong> Repeat Step 2 for other sheets (TS2/TS3...).<br>
+                        <strong>Step 4:</strong> Click <strong>Save Mapping</strong>.<br>
+                        <span class="subtitle">Tip: If sheets/columns are not listed, upload the Bonepile file first (below), then come back here.</span>
+                    </div>
                 </div>
 
                 <form method="POST">
@@ -391,6 +375,31 @@
                 </form>
             </div>
         </div>
+
+        <!-- Upload second (upload only) -->
+        <div style="margin-top: 18px;"></div>
+        <form method="POST" enctype="multipart/form-data">
+            <input type="hidden" name="form_type" value="upload">
+            <div class="upload-area" style="margin-bottom: 20px;">
+                <p style="font-size: 18px; margin-bottom: 10px;">📁 NV_IGS_VR144_Bonepile.xlsx</p>
+                <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Main data file with VR-TS* sheets (e.g., VR-TS1, VR-TS2...)</p>
+                <input type="file" name="file_bonepile" accept=".xlsx,.xls">
+                <p style="color: #666; font-size: 14px; margin-top: 10px;">
+                    Supported formats: .xlsx, .xls
+                </p>
+            </div>
+            
+            <div class="upload-area">
+                <p style="font-size: 18px; margin-bottom: 10px;">📁 FA_Work_Log.xlsx</p>
+                <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Work log file with Log sheet (Column B = SN, Column C = WO)</p>
+                <input type="file" name="file_fa_work_log" accept=".xlsx,.xls">
+                <p style="color: #666; font-size: 14px; margin-top: 10px;">
+                    Supported formats: .xlsx, .xls
+                </p>
+            </div>
+            
+            <button type="submit">Upload</button>
+        </form>
         
         <!-- back link removed; use header Back button -->
     </div>

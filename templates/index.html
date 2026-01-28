@@ -287,27 +287,31 @@
                     </tr>
                     <tr>
                         <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Total Dispositions</td>
-                        <td style="padding: 10px; border: 1px solid var(--border-color);">Total number of dispositions parsed from NV Disposition column (Column H). Each date format (MM/DD: description) counts as one disposition. Only rows with IGS Action (Column M) having a value are counted.</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Total number of dispositions parsed from <strong>NV Disposition</strong>. Each segment in format <strong>MM/DD : description</strong> counts as 1 disposition. One cell can contain multiple dispositions.</td>
                     </tr>
                     <tr>
                         <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Completed Dispositions</td>
-                        <td style="padding: 10px; border: 1px solid var(--border-color);">Dispositions are considered completed when: (1) Latest IGS Action date &gt;= Latest NV Disposition date, OR (2) IGS Action is empty but IGS Status contains "waiting for NV disposition" or Result is PASS/ALL PASS, OR (3) Only IGS Action date exists (no NV Disposition date).</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Completed Dispositions = Total Dispositions - Pending Dispositions.</td>
                     </tr>
                     <tr>
                         <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Pending Dispositions</td>
-                        <td style="padding: 10px; border: 1px solid var(--border-color);">Dispositions that are not yet completed. This occurs when: Latest IGS Action date &lt; Latest NV Disposition date AND Result is still "FAIL", OR IGS Action is empty without completion indicators.</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Pending Dispositions: dispositions whose row has <strong>Result = FAIL</strong> and <strong>PIC = IGS</strong>, within the selected filters (date range / WO).</td>
                     </tr>
                     <tr>
                         <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Current Dispositions - Completed</td>
-                        <td style="padding: 10px; border: 1px solid var(--border-color);">Rows where Result = "FAIL" and PIC = "IGS", and IGS Status does NOT contain "testing" or "waiting" (except "waiting for disposition"). These represent dispositions that are currently being processed and are completed.</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Rows where Status = "Fail" and PIC = "IGS". Completed when NV Disposition is empty, OR IGS Status contains "waiting for NV..." (override), OR latest IGS Action date is >= latest NV Disposition date.</td>
                     </tr>
                     <tr>
-                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Current Dispositions - Waiting</td>
-                        <td style="padding: 10px; border: 1px solid var(--border-color);">Rows where Result = "FAIL" and PIC = "IGS", and IGS Status contains "testing" or "waiting" (but NOT "waiting for disposition"). These are dispositions waiting for action.</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Current Dispositions - Waiting IGS action</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Rows where Status = "Fail" and PIC = "IGS". If NV Disposition has entries, this bucket includes rows where IGS Action is empty OR latest IGS Action date is earlier than the latest NV Disposition date.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Current Dispositions - Testing</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Rows where Status = "Fail" and PIC = "IGS", and either IGS Status contains "testing" OR the latest IGS Action entry contains "testing".</td>
                     </tr>
                     <tr>
                         <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">Current Dispositions - Waiting for Material</td>
-                        <td style="padding: 10px; border: 1px solid var(--border-color);">Rows where Result = "FAIL" and PIC = "IGS", and IGS Status contains "waiting for material", "waiting for strata", or "waiting for cx9". These dispositions are waiting for material/components.</td>
+                        <td style="padding: 10px; border: 1px solid var(--border-color);">Rows where Status = "Fail" and PIC = "IGS", and either IGS Status OR the latest IGS Action entry contains: "waiting for material", "waiting for strata", "waiting for cx9", "waiting for bbay", or "waiting for bf4".</td>
                     </tr>
                     <tr>
                         <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold;">WO Statistics</td>
@@ -418,17 +422,17 @@
         
         <div id="disposition-stats-results" style="display: none;">
             <div class="metric-grid">
-                <div class="metric-box info" onclick="showDispositionsByStatus('all')" style="cursor: pointer;" title="Total Dispositions: Total number of dispositions parsed from NV Disposition column (Column H). Each date format (MM/DD: description) counts as one disposition. Only rows with IGS Action (Column M) having a value are counted.">
+                <div class="metric-box info" onclick="showDispositionsByStatus('all')" style="cursor: pointer;" title="Total Dispositions: Parsed from NV Disposition only. Each segment in format (MM/DD : description) counts as 1 disposition. One cell can contain multiple dispositions.">
                     <div class="metric-label">Total Dispositions</div>
                     <div class="metric-value" id="stat-total-dispositions">0</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view all</div>
                 </div>
-                <div class="metric-box success" onclick="showDispositionsByStatus('completed')" style="cursor: pointer;" title="Completed Dispositions: Dispositions are considered completed when: (1) Latest IGS Action date >= Latest NV Disposition date, OR (2) IGS Action is empty but IGS Status contains 'waiting for NV disposition' or Result is PASS/ALL PASS, OR (3) Only IGS Action date exists (no NV Disposition date).">
+                <div class="metric-box success" onclick="showDispositionsByStatus('completed')" style="cursor: pointer;" title="Completed Dispositions: Total Dispositions - Pending Dispositions.">
                     <div class="metric-label">Completed Dispositions</div>
                     <div class="metric-value" id="stat-completed-dispositions">0</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
                 </div>
-                <div class="metric-box warning" onclick="showDispositionsByStatus('pending')" style="cursor: pointer;" title="Pending Dispositions: Dispositions that are not yet completed. This occurs when: Latest IGS Action date < Latest NV Disposition date AND Result is still 'FAIL', OR IGS Action is empty without completion indicators.">
+                <div class="metric-box warning" onclick="showDispositionsByStatus('pending')" style="cursor: pointer;" title="Pending Dispositions: Dispositions whose row has Result=FAIL and PIC=IGS, within the selected filters (date range / WO).">
                     <div class="metric-label">Pending Dispositions</div>
                     <div class="metric-value" id="stat-pending-dispositions">0</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
@@ -447,17 +451,22 @@
         <h2>3. CURRENT DISPOSITIONS</h2>
         <div id="current-dispositions-results" style="display: none;">
             <div class="metric-grid">
-                <div class="metric-box success" onclick="showCurrentDispositions('completed')" style="cursor: pointer;" title="Current Dispositions - Completed: Rows where Result = 'FAIL' and PIC = 'IGS', and IGS Status does NOT contain 'testing' or 'waiting' (except 'waiting for disposition'). These represent dispositions that are currently being processed and are completed.">
+                <div class="metric-box success" onclick="showCurrentDispositions('completed')" style="cursor: pointer;" title="Current Dispositions - Completed: Rows where Status = 'Fail' and PIC = 'IGS', and IGS Status does NOT contain 'testing' or 'waiting' (except 'waiting for disposition'). These represent dispositions that are currently being processed and are completed.">
                     <div class="metric-label">Completed</div>
                     <div class="metric-value" id="current-completed">0</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
                 </div>
-                <div class="metric-box warning" onclick="showCurrentDispositions('waiting')" style="cursor: pointer;" title="Current Dispositions - Waiting: Rows where Result = 'FAIL' and PIC = 'IGS', and IGS Status contains 'testing' or 'waiting' (but NOT 'waiting for disposition'). These are dispositions waiting for action.">
-                    <div class="metric-label">Waiting</div>
+                <div class="metric-box warning" onclick="showCurrentDispositions('waiting')" style="cursor: pointer;" title="Current Dispositions - Waiting IGS action: Rows where Status = 'Fail' and PIC = 'IGS'. If NV Disposition has entries, this bucket includes rows where IGS Action is empty OR latest IGS Action date is earlier than the latest NV Disposition date.">
+                    <div class="metric-label">Waiting IGS action</div>
                     <div class="metric-value" id="current-waiting">0</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
                 </div>
-                <div class="metric-box warning" onclick="showCurrentDispositions('waiting_material')" style="cursor: pointer;" title="Current Dispositions - Waiting for Material: Rows where Result = 'FAIL' and PIC = 'IGS', and IGS Status contains 'waiting for material', 'waiting for strata', or 'waiting for cx9'. These dispositions are waiting for material/components.">
+                <div class="metric-box warning" onclick="showCurrentDispositions('testing')" style="cursor: pointer;" title="Current Dispositions - Testing: Rows where Status = 'Fail' and PIC = 'IGS', and either IGS Status contains 'testing' OR the latest IGS Action entry contains 'testing'.">
+                    <div class="metric-label">Testing</div>
+                    <div class="metric-value" id="current-testing">0</div>
+                    <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
+                </div>
+                <div class="metric-box warning" onclick="showCurrentDispositions('waiting_material')" style="cursor: pointer;" title="Current Dispositions - Waiting for Material: Rows where Status = 'Fail' and PIC = 'IGS', and IGS Status contains 'waiting for material', 'waiting for strata', or 'waiting for cx9'. These dispositions are waiting for material/components.">
                     <div class="metric-label">Waiting for Material</div>
                     <div class="metric-value" id="current-waiting-material">0</div>
                     <div class="metric-label" style="font-size: 11px; margin-top: 5px;">Click to view details</div>
@@ -939,6 +948,7 @@
                     
                     document.getElementById('current-completed').textContent = data.total_completed || 0;
                     document.getElementById('current-waiting').textContent = data.total_waiting || 0;
+                    document.getElementById('current-testing').textContent = data.total_testing || 0;
                     document.getElementById('current-waiting-material').textContent = data.total_waiting_material || 0;
                     document.getElementById('current-dispositions-results').style.display = 'block';
                 })
@@ -947,8 +957,19 @@
                 });
         }
         
+        function buildAllDispositionsUrl() {
+            const startDate = document.getElementById('filter-start-date').value;
+            const endDate = document.getElementById('filter-end-date').value;
+            const wo = document.getElementById('filter-wo').value;
+            let url = '/api/all-dispositions?';
+            if (startDate) url += `start_date=${encodeURIComponent(startDate)}&`;
+            if (endDate) url += `end_date=${encodeURIComponent(endDate)}&`;
+            if (wo) url += `wo=${encodeURIComponent(wo)}&`;
+            return url;
+        }
+        
         function showAllDispositions() {
-            fetch('/api/all-dispositions')
+            fetch(buildAllDispositionsUrl())
                 .then(response => response.json())
                 .then(data => {
                     if (data.error) {
@@ -972,8 +993,9 @@
                         html += `</tr>`;
                         
                         data.data.forEach(disp => {
-                            const statusColor = disp.is_completed ? '#38ef7d' : '#f5576c';
-                            const statusText = disp.is_completed ? 'Completed' : 'Pending';
+                            const isPending = !!disp.is_pending;
+                            const statusColor = isPending ? '#f5576c' : '#38ef7d';
+                            const statusText = isPending ? 'Pending' : 'Completed';
                             html += `<tr>`;
                             html += `<td style="padding: 8px; border: 1px solid #ddd;">${disp.date || 'N/A'}</td>`;
                             html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.sn}</td>`;
@@ -997,12 +1019,7 @@
         }
         
         function showDispositionsByStatus(status) {
-            // Get current filter values
-            const startDate = document.getElementById('filter-start-date').value;
-            const endDate = document.getElementById('filter-end-date').value;
-            const wo = document.getElementById('filter-wo').value;
-            
-            fetch('/api/all-dispositions')
+            fetch(buildAllDispositionsUrl())
                 .then(response => response.json())
                 .then(data => {
                     if (data.error) {
@@ -1013,20 +1030,9 @@
                     // Filter by status
                     let filteredData = data.data;
                     if (status === 'completed') {
-                        filteredData = data.data.filter(d => d.is_completed);
+                        filteredData = data.data.filter(d => !d.is_pending);
                     } else if (status === 'pending') {
-                        filteredData = data.data.filter(d => !d.is_completed);
-                    }
-                    
-                    // Apply date and WO filters
-                    if (startDate) {
-                        filteredData = filteredData.filter(d => d.date >= startDate);
-                    }
-                    if (endDate) {
-                        filteredData = filteredData.filter(d => d.date <= endDate);
-                    }
-                    if (wo && wo !== 'ALL') {
-                        filteredData = filteredData.filter(d => d.wo === wo);
+                        filteredData = data.data.filter(d => d.is_pending);
                     }
                     
                     const modalBody = document.getElementById('modal-body');
@@ -1045,8 +1051,9 @@
                         html += `</tr>`;
                         
                         filteredData.forEach(disp => {
-                            const statusColor = disp.is_completed ? '#38ef7d' : '#f5576c';
-                            const statusText = disp.is_completed ? 'Completed' : 'Pending';
+                            const isPending = !!disp.is_pending;
+                            const statusColor = isPending ? '#f5576c' : '#38ef7d';
+                            const statusText = isPending ? 'Pending' : 'Completed';
                             html += `<tr>`;
                             html += `<td style="padding: 8px; border: 1px solid #ddd;">${disp.date || 'N/A'}</td>`;
                             html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.sn}</td>`;
@@ -1086,7 +1093,10 @@
                     title = 'Completed Current Dispositions';
                 } else if (type === 'waiting') {
                     dispositions = cachedData.waiting || [];
-                    title = 'Waiting Current Dispositions';
+                    title = 'Waiting IGS action Current Dispositions';
+                } else if (type === 'testing') {
+                    dispositions = cachedData.testing || [];
+                    title = 'Testing Current Dispositions';
                 } else if (type === 'waiting_material') {
                     dispositions = cachedData.waiting_material || [];
                     title = 'Waiting for Material Current Dispositions';
@@ -1142,7 +1152,10 @@
                         title = 'Completed Current Dispositions';
                     } else if (type === 'waiting') {
                         dispositions = data.waiting || [];
-                        title = 'Waiting Current Dispositions';
+                        title = 'Waiting IGS action Current Dispositions';
+                    } else if (type === 'testing') {
+                        dispositions = data.testing || [];
+                        title = 'Testing Current Dispositions';
                     } else if (type === 'waiting_material') {
                         dispositions = data.waiting_material || [];
                         title = 'Waiting for Material Current Dispositions';
@@ -1150,7 +1163,7 @@
                     
                     let html = `<h2>${title} (${dispositions.length} total)</h2>`;
                     html += `<div style="margin-bottom: 10px; padding: 8px; background: #e3f2fd; border-radius: 4px; font-size: 12px; color: #1976d2;">
-                        📦 Showing: <strong>SN Count</strong> - Unique Serial Numbers where Result = 'FAIL' and PIC = 'IGS'.
+                        📦 Showing: <strong>SN Count</strong> - Unique Serial Numbers where Status = 'Fail' and PIC = 'IGS'.
                     </div>`;
                     html += `<div style="max-height: 70vh; overflow-y: auto;">`;
                     html += `<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">`;
@@ -1158,6 +1171,8 @@
                     html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">SN</th>`;
                     html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">WO</th>`;
                     html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">IGS Status</th>`;
+                    html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Latest IGS Action</th>`;
+                    html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Latest NV Dispo</th>`;
                     html += `<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Row IDX</th>`;
                     html += `</tr>`;
                     
@@ -1166,6 +1181,8 @@
                         html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;"><strong>${disp.sn}</strong></td>`;
                         html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.wo || 'N/A'}</td>`;
                         html += `<td style="padding: 8px; border: 1px solid #ddd; max-width: 400px; word-wrap: break-word;">${disp.igs_status || 'N/A'}</td>`;
+                        html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.igs_action_latest_date || ''}</td>`;
+                        html += `<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace;">${disp.nv_dispo_latest_date || ''}</td>`;
                         html += `<td style="padding: 8px; border: 1px solid #ddd;">${disp.row_idx}</td>`;
                         html += `</tr>`;
                     });

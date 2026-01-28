@@ -1,10 +1,11 @@
 @echo off
+cd /d "%~dp0"
 echo ========================================
-echo VR-TS Bonepile Statistics Dashboard
+echo Daily Test Analysis Server
 echo ========================================
 echo.
 echo Starting server...
 echo.
-python app.py
+py daily_test_app.py
 pause
 

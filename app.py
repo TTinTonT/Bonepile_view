@@ -448,8 +448,16 @@ def is_waiting_for_material(text):
     if pd.isna(text):
         return False
     text_str = str(text).lower()
-    # Check for "waiting for material", "waiting for cx9", "waiting for strata", "waiting for new material", or "waiting for new strata"
-    material_keywords = ['waiting for material', 'waiting for cx9', 'waiting for strata', 'waiting for new material', 'waiting for new strata']
+    # Check for material/component waits (expanded keywords)
+    material_keywords = [
+        'waiting for material',
+        'waiting for cx9',
+        'waiting for strata',
+        'waiting for new material',
+        'waiting for new strata',
+        'waiting for bbay',
+        'waiting for bf4',
+    ]
     return any(keyword in text_str for keyword in material_keywords)
 
 # Function to normalize SN format
@@ -991,6 +999,68 @@ def parse_dispositions_from_text(text):
         except ValueError:
             continue
     return dispositions
+
+
+def parse_nv_dispositions_mmdd_colon(text):
+    """
+    Parse NV Disposition text where each disposition is in format:
+      MM/DD : blabla
+    One cell can contain multiple dispositions.
+
+    Returns list of (date, description) tuples.
+    """
+    if pd.isna(text):
+        return []
+    text_str = str(text)
+    dispositions = []
+
+    # Strictly require ":" after the date, per new definition
+    # Supports optional whitespace around ":".
+    pattern = r'(\d{1,2})/(\d{1,2})\s*:\s*([^\n\r]+?)(?=\s*\d{1,2}/\d{1,2}\s*:|\Z)'
+    matches = re.finditer(pattern, text_str, re.MULTILINE | re.IGNORECASE | re.DOTALL)
+
+    current_year = datetime.now().year
+    for match in matches:
+        try:
+            month = int(match.group(1))
+            day = int(match.group(2))
+        except Exception:
+            continue
+
+        description = (match.group(3) or '').strip()
+        description = description.rstrip(':').strip().replace('\n', ' ').replace('\r', ' ')
+        description = ' '.join(description.split())
+
+        # Keep behavior consistent with previous parsing: if parsed date is in the future,
+        # treat it as previous year.
+        try:
+            disp_date = datetime(current_year, month, day)
+            if disp_date > datetime.now():
+                disp_date = datetime(current_year - 1, month, day)
+        except ValueError:
+            continue
+
+        dispositions.append((disp_date, description))
+
+    return dispositions
+
+
+def get_latest_entry_from_date_desc_list(entries):
+    """
+    Given a list of (datetime, description) tuples, return the latest (date, description).
+    If multiple entries have the same date, prefer the later entry in the original list.
+    Returns (None, '') when empty.
+    """
+    if not entries:
+        return None, ''
+    try:
+        _, (d, desc) = max(
+            enumerate(entries),
+            key=lambda t: ((t[1][0] or datetime.min), t[0]),
+        )
+        return d, desc
+    except Exception:
+        return None, ''
 
 # Function to get latest date from dispositions
 def get_latest_date_from_dispositions(dispositions):
@@ -1711,6 +1781,15 @@ def load_data(filename=None):
     igs_status_col = "igs_status"
     bp_duration_col = "bp_duration"
     nv_disposition_col = "nv_disposition"
+
+    # Status helpers (Status column is mapped into canonical "result")
+    def is_status_fail(v):
+        s = str(v).upper().strip()
+        return s.startswith('FAIL')  # accept "FAIL", "Fail", "FAIL - ...", etc.
+
+    def is_status_all_pass(v):
+        s = str(v).upper().strip()
+        return s.startswith('ALL PASS')
     
     # Filter valid SN
     valid_sn_records = df[df[sn_col].apply(is_valid_sn)].copy()
@@ -1721,18 +1800,12 @@ def load_data(filename=None):
     # Get unique SNs (total trays in BP)
     unique_sns = valid_sn_records[sn_col].unique()
     
-    # Calculate dispositions (only when IGS Action has value)
-    # Filter records where IGS Action column is not empty
-    records_with_igs_action = valid_sn_records[
-        (valid_sn_records[igs_action_col].notna()) & 
-        (valid_sn_records[igs_action_col].astype(str).str.strip() != '') &
-        (valid_sn_records[igs_action_col].astype(str).str.strip() != 'nan')
-    ].copy()
-    
+    # Calculate dispositions based on NV Disposition column only.
+    # Each "MM/DD : blabla" segment counts as 1 disposition.
     all_dispositions = []  # List of all dispositions with details
-    disposition_by_row = {}  # Map row index to list of dispositions
-    
-    for idx, row in records_with_igs_action.iterrows():
+    disposition_by_row = {}  # Map row index to disposition info
+
+    for idx, row in valid_sn_records.iterrows():
         sn = safe_get_row_value(row, sn_col, '')
         sn_str = str(int(sn)) if isinstance(sn, (int, float)) else str(sn).strip().replace('.0', '')
         nv_disp_text = safe_get_row_value(row, nv_disposition_col, '')
@@ -1740,91 +1813,63 @@ def load_data(filename=None):
         igs_status_text = safe_get_row_value(row, igs_status_col, '')
         result_text = safe_get_row_value(row, result_col, '')
         
-        # Parse dispositions from NV Disposition column
-        nv_dispositions = parse_dispositions_from_text(str(nv_disp_text))
-        # Parse dispositions from IGS Action column
-        igs_action_dispositions = parse_dispositions_from_text(str(igs_action_text))
-        
-        # Get latest dates
-        latest_nv_date = get_latest_date_from_dispositions(nv_dispositions)
-        latest_igs_date = get_latest_date_from_dispositions(igs_action_dispositions)
-        
-        # Check if IGS Action is empty (after parsing)
-        is_igs_action_empty = (not igs_action_text or 
-                              str(igs_action_text).strip() == '' or 
-                              str(igs_action_text).strip().lower() == 'nan' or
-                              latest_igs_date is None)
-        
-        # Check IGS Status for completion indicators
-        igs_status_lower = str(igs_status_text).lower()
-        result_lower = str(result_text).upper().strip()
-        
-        # Check if completed based on new logic:
-        # 1. If IGS Action is empty but IGS Status is "waiting for NV disposition" or result is PASS/ALL PASS → completed
-        # 2. If both dates exist: only not completed if latest_igs_date < latest_nv_date (and still FAIL)
-        # 3. Otherwise: completed if latest_igs_date >= latest_nv_date
-        is_completed = False
-        
-        if is_igs_action_empty:
-            # IGS Action is empty, check IGS Status or Result
-            if ('waiting for nv disposition' in igs_status_lower or 
-                'waiting for nv disp' in igs_status_lower or
-                result_lower == 'PASS' or 
-                result_lower == 'ALL PASS'):
-                is_completed = True
-            else:
-                is_completed = False
-        elif latest_igs_date is not None and latest_nv_date is not None:
-            # Both dates exist: only not completed if latest_igs_date < latest_nv_date (and still FAIL)
-            if latest_igs_date < latest_nv_date and result_lower == 'FAIL':
-                is_completed = False
-            else:
-                is_completed = True  # latest_igs_date >= latest_nv_date or not FAIL
-        elif latest_igs_date is not None and latest_nv_date is None:
-            is_completed = True  # Has action but no disposition
-        else:
-            is_completed = False  # No action date = not completed
+        # Parse dispositions from NV Disposition column (strict mm/dd: format)
+        nv_dispositions = parse_nv_dispositions_mmdd_colon(str(nv_disp_text))
+
+        # Pending definition (row-level): Status=Fail + PIC=IGS
+        result_upper = str(result_text).upper().strip()
+        pic_upper = str(safe_get_row_value(row, pic_col, '')).upper().strip()
+        is_fail_igs_row = is_status_fail(result_text) and (pic_upper == 'IGS')
         
         # Store dispositions for this row
         row_dispositions = []
-        for date, desc in nv_dispositions:
+        for disp_date, desc in nv_dispositions:
             wo = sn_wo_mapping.get(sn_str, '')
             # Normalize WO if it exists
             if wo:
                 wo = normalize_wo(wo)
             row_dispositions.append({
-                'date': date,
+                'date': disp_date,
                 'description': desc,
                 'sn': sn_str,
                 'wo': wo,
                 'row_idx': idx
             })
             all_dispositions.append({
-                'date': date,
+                'date': disp_date,
                 'description': desc,
                 'sn': sn_str,
                 'wo': wo,
                 'row_idx': idx,
-                'is_completed': is_completed
+                # Pending/Completed are defined simply from row status for now.
+                # Completed will be computed as Total - Pending at metric level.
+                'is_pending': is_fail_igs_row,
+                'is_completed': (not is_fail_igs_row),
+                'result': result_upper,
+                'pic': pic_upper,
             })
         
         
         disposition_by_row[idx] = {
             'dispositions': row_dispositions,
-            'is_completed': is_completed,
-            'latest_nv_date': latest_nv_date,
-            'latest_igs_date': latest_igs_date,
+            'is_pending': is_fail_igs_row,
             'sn': sn_str
         }
+
+    # Sort dispositions by date (then SN for stability)
+    try:
+        all_dispositions.sort(key=lambda d: (d.get('date') or datetime.min, d.get('sn') or '', d.get('row_idx') or 0))
+    except Exception:
+        pass
     
-    # Fail records: COUNTIF(result="FAIL") - đếm số dòng có result = FAIL
+    # Fail records: COUNTIF(Status="Fail") - đếm số dòng có status = fail (per mapping)
     fail_records = valid_sn_records[
-        valid_sn_records[result_col].astype(str).str.upper().str.strip() == 'FAIL'
+        valid_sn_records[result_col].apply(is_status_fail)
     ].copy()
     
-    # Pass records: COUNTIF(result="ALL PASS") - đếm số dòng có result = ALL PASS
+    # Pass records: COUNTIF(Status="ALL PASS") - đếm số dòng có status = all pass (per mapping)
     pass_records = valid_sn_records[
-        valid_sn_records[result_col].astype(str).str.upper().str.strip() == 'ALL PASS'
+        valid_sn_records[result_col].apply(is_status_all_pass)
     ].copy()
     
     # Get unique SNs for fail and pass
@@ -1874,17 +1919,32 @@ def load_data(filename=None):
     else:
         waiting_material_records = pd.DataFrame()
     
-    # Current dispositions (result = FAIL, PIC = IGS)
-    # Completed if IGS Status doesn't have "testing" or "waiting" (except "waiting for disposition")
+    # Current dispositions (Status = FAIL, PIC = IGS)
     current_dispositions_completed = []
     current_dispositions_waiting = []
+    current_dispositions_testing = []
     current_dispositions_waiting_material = []
     
-    for idx, row in fail_igs_records.iterrows():
+    # IMPORTANT: Use the mapped Status column (result_col) rather than any hardcoded column name.
+    # Status values may be "Fail"/"FAIL", so compare case-insensitively.
+    current_mask_fail = valid_sn_records[result_col].astype(str).str.upper().str.strip().str.startswith('FAIL')
+    current_mask_pic_igs = valid_sn_records[pic_col].astype(str).str.upper().str.strip() == 'IGS'
+    current_igs_fail_records = valid_sn_records[current_mask_fail & current_mask_pic_igs].copy()
+
+    for idx, row in current_igs_fail_records.iterrows():
         sn = safe_get_row_value(row, sn_col, '')
         sn_str = str(int(sn)) if isinstance(sn, (int, float)) else str(sn).strip().replace('.0', '')
         igs_status = safe_get_row_value(row, igs_status_col, '')
         igs_status_lower = str(igs_status).lower()
+        igs_action_text = safe_get_row_value(row, igs_action_col, '')
+        nv_disp_text = safe_get_row_value(row, nv_disposition_col, '')
+
+        # Parse latest NV Disposition date (mm/dd:) and latest IGS Action date (mm/dd:)
+        nv_entries = parse_nv_dispositions_mmdd_colon(str(nv_disp_text))
+        igs_entries = parse_nv_dispositions_mmdd_colon(str(igs_action_text))
+        nv_latest_date, _ = get_latest_entry_from_date_desc_list(nv_entries)
+        igs_latest_date, igs_latest_desc = get_latest_entry_from_date_desc_list(igs_entries)
+        igs_latest_desc_lower = str(igs_latest_desc).lower()
         
         wo = sn_wo_mapping.get(sn_str, '')
         # Normalize WO if it exists
@@ -1895,20 +1955,54 @@ def load_data(filename=None):
             'sn': sn_str,
             'wo': wo,
             'igs_status': str(igs_status),
+            'igs_action_latest_date': igs_latest_date.strftime('%Y-%m-%d') if isinstance(igs_latest_date, datetime) else '',
+            'nv_dispo_latest_date': nv_latest_date.strftime('%Y-%m-%d') if isinstance(nv_latest_date, datetime) else '',
+            'igs_action_latest_text': str(igs_latest_desc),
             'row_idx': idx
         }
-        
-        # Check if waiting for material
-        if ('waiting for material' in igs_status_lower or 'waiting for strata' in igs_status_lower or 
-            'waiting for cx9' in igs_status_lower or 'waiting for new material' in igs_status_lower or 
-            'waiting for new strata' in igs_status_lower):
-            current_dispositions_waiting_material.append(disposition_info)
-        # Check if waiting/testing (but not "waiting for disposition")
-        elif ('testing' in igs_status_lower or 'waiting' in igs_status_lower) and 'waiting for disposition' not in igs_status_lower:
-            current_dispositions_waiting.append(disposition_info)
-        # Otherwise completed
-        else:
+
+        # Classification rules (priority order):
+        # 1) If IGS Status contains "waiting for NV ..." => treat as Completed (override)
+        if ('waiting for nv dispo' in igs_status_lower or
+            'waiting for nv disposition' in igs_status_lower or
+            'waiting for nv' in igs_status_lower):
             current_dispositions_completed.append(disposition_info)
+            continue
+
+        # 2) If NV Disposition is empty => treat as Completed
+        if not nv_entries:
+            current_dispositions_completed.append(disposition_info)
+            continue
+
+        # 3) Waiting for material: IGS Status or latest IGS Action contains material keywords
+        material_keywords = [
+            'waiting for material',
+            'waiting for strata',
+            'waiting for cx9',
+            'waiting for bbay',
+            'waiting for bf4',
+            'waiting for new material',
+            'waiting for new strata',
+        ]
+        if any(k in igs_status_lower for k in material_keywords) or any(k in igs_latest_desc_lower for k in material_keywords):
+            current_dispositions_waiting_material.append(disposition_info)
+            continue
+
+        # 4) Testing: IGS Status or latest IGS Action contains "testing"
+        if ('testing' in igs_status_lower) or ('testing' in igs_latest_desc_lower):
+            current_dispositions_testing.append(disposition_info)
+            continue
+
+        # 5) Waiting IGS action: IGS Action empty OR latest IGS Action date < latest NV Disposition date
+        if (not igs_entries) or (isinstance(igs_latest_date, datetime) and isinstance(nv_latest_date, datetime) and igs_latest_date < nv_latest_date):
+            current_dispositions_waiting.append(disposition_info)
+            continue
+        if (not isinstance(igs_latest_date, datetime)) and isinstance(nv_latest_date, datetime):
+            current_dispositions_waiting.append(disposition_info)
+            continue
+
+        # 6) Otherwise Completed (igs_latest_date >= nv_latest_date)
+        current_dispositions_completed.append(disposition_info)
     
     return {
         'df': valid_sn_records,
@@ -1927,6 +2021,7 @@ def load_data(filename=None):
         'sn_wo_mapping': sn_wo_mapping,  # Mapping SN -> WO
         'current_dispositions_completed': current_dispositions_completed,
         'current_dispositions_waiting': current_dispositions_waiting,
+        'current_dispositions_testing': current_dispositions_testing,
         'current_dispositions_waiting_material': current_dispositions_waiting_material,
         'cols': {
             'sn': sn_col,
@@ -1949,9 +2044,10 @@ def index():
         # Calculate statistics
         fail_empty_sns = set(data['fail_with_empty_action'][data['cols']['sn']].unique()) if len(data['fail_with_empty_action']) > 0 else set()
         
-        # Calculate disposition statistics
+        # Calculate disposition statistics (NV Disposition only)
         total_dispositions = len(data['all_dispositions']) if 'all_dispositions' in data else 0
-        completed_dispositions = sum(1 for d in data['all_dispositions'] if d['is_completed']) if 'all_dispositions' in data else 0
+        pending_dispositions = sum(1 for d in data['all_dispositions'] if d.get('is_pending')) if 'all_dispositions' in data else 0
+        completed_dispositions = max(0, total_dispositions - pending_dispositions)
         
         stats = {
             'total_trays': len(data['unique_sns']),
@@ -2267,7 +2363,8 @@ def upload_file():
         else:
             flash('No valid files uploaded. Please upload .xlsx or .xls files.')
 
-        return redirect(url_for('index'))
+        # Upload only (do not auto-run dashboard). Redirect back to mapping/settings.
+        return redirect(url_for('upload_file') + '#settings')
 
     mapping = load_user_mapping()
     ctx = build_mapping_context(mapping)
@@ -2418,7 +2515,8 @@ def get_disposition_stats():
         
         # Calculate statistics
         total_dispositions = len(filtered_dispositions)
-        completed_dispositions = sum(1 for d in filtered_dispositions if d['is_completed'])
+        pending_dispositions = sum(1 for d in filtered_dispositions if d.get('is_pending'))
+        completed_dispositions = max(0, total_dispositions - pending_dispositions)
         
         # Calculate average per day/week
         if filtered_dispositions:
@@ -2462,7 +2560,7 @@ def get_disposition_stats():
         return jsonify({
             'total_dispositions': total_dispositions,
             'completed_dispositions': completed_dispositions,
-            'pending_dispositions': total_dispositions - completed_dispositions,
+            'pending_dispositions': pending_dispositions,
             'avg_per_day': round(avg_per_day, 2),
             'avg_per_week': round(avg_per_week, 2),
             'unique_wos': unique_wos,
@@ -2473,7 +2571,7 @@ def get_disposition_stats():
 
 @app.route('/api/current-dispositions')
 def get_current_dispositions():
-    """Get current dispositions (result = FAIL, PIC = IGS) with status"""
+    """Get current dispositions (Status = Fail, PIC = IGS) with status"""
     try:
         data = load_data()
         if data is None:
@@ -2482,9 +2580,11 @@ def get_current_dispositions():
         return jsonify({
             'completed': data['current_dispositions_completed'],
             'waiting': data['current_dispositions_waiting'],
+            'testing': data.get('current_dispositions_testing', []),
             'waiting_material': data['current_dispositions_waiting_material'],
             'total_completed': len(data['current_dispositions_completed']),
             'total_waiting': len(data['current_dispositions_waiting']),
+            'total_testing': len(data.get('current_dispositions_testing', [])),
             'total_waiting_material': len(data['current_dispositions_waiting_material'])
         })
     except Exception as e:
@@ -2492,21 +2592,49 @@ def get_current_dispositions():
 
 @app.route('/api/all-dispositions')
 def get_all_dispositions():
-    """Get all dispositions for debugging"""
+    """Get all dispositions (supports date/WO filters)"""
     try:
         data = load_data()
         if data is None:
             return jsonify({'error': 'No data available'}), 404
+
+        # Optional filters (same semantics as /api/disposition-stats)
+        start_date_str = request.args.get('start_date', '')
+        end_date_str = request.args.get('end_date', '')
+        wo_filter = request.args.get('wo', '')
+
+        start_date = None
+        end_date = None
+        if start_date_str:
+            try:
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            except Exception:
+                start_date = None
+        if end_date_str:
+            try:
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d') + timedelta(days=1)
+            except Exception:
+                end_date = None
         
         # Format dispositions for display
         dispositions_list = []
         for disp in data.get('all_dispositions', []):
+            # Filter by date
+            if start_date and disp.get('date') and disp['date'] < start_date:
+                continue
+            if end_date and disp.get('date') and disp['date'] >= end_date:
+                continue
+            # Filter by WO
+            if wo_filter and wo_filter != 'ALL' and disp.get('wo', '') != wo_filter:
+                continue
+
             dispositions_list.append({
                 'date': disp['date'].strftime('%Y-%m-%d') if disp['date'] else '',
                 'description': disp['description'],
                 'sn': disp['sn'],
                 'wo': disp['wo'],
-                'is_completed': disp['is_completed'],
+                'is_completed': disp.get('is_completed', False),
+                'is_pending': disp.get('is_pending', False),
                 'row_idx': disp['row_idx']
             })
         
@@ -2516,8 +2644,8 @@ def get_all_dispositions():
         return jsonify({
             'data': dispositions_list,
             'total': len(dispositions_list),
-            'completed': sum(1 for d in dispositions_list if d['is_completed']),
-            'pending': sum(1 for d in dispositions_list if not d['is_completed'])
+            'pending': sum(1 for d in dispositions_list if d.get('is_pending')),
+            'completed': max(0, len(dispositions_list) - sum(1 for d in dispositions_list if d.get('is_pending'))),
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
