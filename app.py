@@ -27,6 +27,12 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
 USER_MAPPING_PATH = os.path.join(app.config['CACHE_FOLDER'], 'user_mapping.json')
 
+# Hidden sheets (exclude list):
+# - UI will show all workbook sheets EXCEPT those in mapping['bonepile']['hidden_sheets'].
+# - On first run, we seed hidden_sheets to "hide everything except VR-TS1 and TS2-SKU002".
+# - Future new sheets will appear by default (until you add them to hidden_sheets).
+DEFAULT_VISIBLE_SHEETS = ["VR-TS1", "TS2-SKU002"]
+
 # Create upload and cache folders if not exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['CACHE_FOLDER'], exist_ok=True)
@@ -1694,10 +1700,26 @@ def load_data(filename=None):
     selected_sheets = bp.get('selected_sheets') or []
     sheets_cfg = bp.get('sheets') or {}
 
+    # Enforce hidden sheets (exclude list) globally (even if mapping.json contains other sheets)
+    hidden_sheets = bonepile_mapping.get('hidden_sheets') if isinstance(bonepile_mapping, dict) else None
+    if isinstance(hidden_sheets, str):
+        hidden_sheets = [hidden_sheets]
+    if not isinstance(hidden_sheets, list):
+        hidden_sheets = []
+    hidden_sheets = [str(s).strip() for s in hidden_sheets if str(s).strip()]
+
+    selected_sheets = [s for s in selected_sheets if s not in set(hidden_sheets)]
+    if isinstance(sheets_cfg, dict):
+        sheets_cfg = {k: v for k, v in sheets_cfg.items() if k not in set(hidden_sheets)}
+
     if not selected_sheets:
         raise SchemaError(
-            "Bonepile mapping error: no sheets selected. Please update mapping in Upload.",
-            details={"file": excel_file, "available_sheets": list_excel_sheets(excel_file)},
+            "Bonepile mapping error: no visible sheets selected (all selected sheets are hidden). Please update mapping in Upload.",
+            details={
+                "file": excel_file,
+                "hidden_sheets": hidden_sheets,
+                "available_sheets": list_excel_sheets(excel_file),
+            },
         )
 
     normalized_frames = []
@@ -2119,15 +2141,37 @@ def upload_file():
             current_mapping['fa_work_log'] = json.loads(json.dumps(DEFAULT_USER_MAPPING['fa_work_log']))
 
         bonepile_path = resolve_uploaded_or_local_path(current_mapping['bonepile'].get('file_name', DEFAULT_USER_MAPPING['bonepile']['file_name']))
-        bonepile_sheets = list_excel_sheets(bonepile_path) if bonepile_path else []
+        bonepile_all_sheets = list_excel_sheets(bonepile_path) if bonepile_path else []
+
+        # Hidden sheets (exclude list) persisted in mapping.
+        # If missing, seed it to hide everything except DEFAULT_VISIBLE_SHEETS.
+        hidden_sheets = current_mapping.get('bonepile', {}).get('hidden_sheets')
+        if isinstance(hidden_sheets, str):
+            hidden_sheets = [hidden_sheets]
+        if not isinstance(hidden_sheets, list):
+            hidden_sheets = []
+        hidden_sheets = [str(s).strip() for s in hidden_sheets if str(s).strip()]
+
+        if bonepile_all_sheets and not hidden_sheets:
+            seeded_hidden = [s for s in bonepile_all_sheets if s not in set(DEFAULT_VISIBLE_SHEETS)]
+            current_mapping['bonepile']['hidden_sheets'] = seeded_hidden
+            # Persist seed so you can edit it later (sheet list depends on workbook contents)
+            try:
+                save_user_mapping(current_mapping)
+                hidden_sheets = seeded_hidden
+            except Exception:
+                hidden_sheets = seeded_hidden
+
+        bonepile_hidden_sheets = [s for s in bonepile_all_sheets if s in set(hidden_sheets)]
+        bonepile_sheets = [s for s in bonepile_all_sheets if s not in set(hidden_sheets)]
 
         # Normalize to multi-sheet mapping (without persisting on GET)
         bp_norm = normalize_bonepile_mapping(current_mapping.get('bonepile', {}))
         selected_sheets = bp_norm.get('selected_sheets') or []
         sheets_cfg = bp_norm.get('sheets') or {}
 
-        # Filter invalid selections if workbook is available
-        if bonepile_sheets:
+        # Filter invalid selections if workbook is available (also enforce hidden sheets)
+        if bonepile_all_sheets:
             selected_sheets = [s for s in selected_sheets if s in bonepile_sheets]
 
         # Default selection: prefer VR-TS1 if present
@@ -2250,6 +2294,7 @@ def upload_file():
             "mapping": current_mapping,
             "bonepile_path": bonepile_path,
             "bonepile_sheets": bonepile_sheets,
+            "bonepile_hidden_sheets": bonepile_hidden_sheets,
             "bonepile_selected_sheets": selected_sheets,
             "bonepile_edit_sheet": edit_sheet,
             "bonepile_edit_header_row_excel": edit_header_row_excel,
