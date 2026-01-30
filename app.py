@@ -352,6 +352,12 @@ def get_local_ip():
 # Note: NVL is placed after RIN for TS2 flow.
 STATION_ORDER = ['FLA', 'FLB', 'AST', 'FTS', 'FCT', 'RIN', 'NVL']
 
+# Part numbers that should count PASS at FCT even if they are TS2.
+# Add more part numbers here as needed.
+PASS_AT_FCT_PART_NUMBERS = {
+    "675-24109-0010-TS2",
+}
+
 def sort_stations(stations):
     """
     Sort stations according to custom order: FLA > FLB > AST > FTS > FCT > RIN
@@ -384,6 +390,8 @@ def get_pass_station_for_part_number(part_number):
         pn = '' if part_number is None else str(part_number).strip().upper()
     except Exception:
         pn = ''
+    if pn in PASS_AT_FCT_PART_NUMBERS:
+        return 'FCT'
     # Examples: "675-24109-0000-TS2" or "...-TS2"
     if 'TS2' in pn:
         return 'NVL'
