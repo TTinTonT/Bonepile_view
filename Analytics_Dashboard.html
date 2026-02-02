@@ -47,7 +47,7 @@
   .app-wrapper {
     min-height: 100%;
     width: 100%;
-    overflow-auto;
+    overflow: auto;
   }
   header {
     background: var(--color-surface);
@@ -131,6 +131,15 @@
     background: var(--color-hover);
     border-color: var(--color-primary);
     color: var(--color-primary);
+  }
+  .btn-mini{
+    padding: 0.45rem 0.85rem;
+    border-radius: 10px;
+    font-size: 0.875rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
   }
   main {
     max-width: 1400px;
@@ -348,7 +357,12 @@
        </svg>
        <svg id="moon-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
-       </svg></button> <button class="btn-primary" id="upload-btn" type="button">
+       </svg></button>
+       <button class="btn-ghost btn-mini" id="export-all" type="button" title="Export all dashboard data to CSV">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-3-3m3 3l3-3M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path>
+        </svg> Export All
+       </button> <button class="btn-primary" id="upload-btn" type="button">
        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
        </svg> Upload </button>
@@ -359,8 +373,6 @@
     <div class="panel mb-8 animate-in delay-1">
      <div class="flex items-center justify-between mb-6">
       <h3 class="text-lg font-semibold" style="color: var(--color-text);">Filters &amp; Time Range</h3>
-      <div class="toggle-group"><button class="toggle-btn active" id="agg-daily">Daily</button> <button class="toggle-btn" id="agg-weekly">Weekly</button> <button class="toggle-btn" id="agg-monthly">Monthly</button>
-      </div>
      </div>
      <div class="grid grid-cols-1 md:grid-cols-2 gap-6"><!-- Start Time -->
       <div><label class="block text-sm font-bold mb-3" style="color: var(--color-text);">Start Time</label>
@@ -396,7 +408,12 @@
     <h2 id="summary-title" class="text-2xl font-bold mb-6 animate-in delay-2" style="color: var(--color-text);">Summary Overview</h2><!-- Summary Matrix -->
     <div class="panel mb-8 animate-in delay-2">
      <div class="flex items-center justify-between mb-5">
-      <h3 class="text-lg font-semibold" style="color: var(--color-text);">Tray Summary (Unique SN)</h3><span class="text-sm font-semibold" style="color: var(--color-muted);">Rows: Tested / Pass / Fail • Cols: BP / Fresh / Total</span>
+      <h3 class="text-lg font-semibold" style="color: var(--color-text);">Tray Summary (Unique SN)</h3>
+      <button class="btn-ghost btn-mini" id="export-summary" type="button" title="Export Tray Summary to CSV">
+       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-3-3m3 3l3-3M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path>
+       </svg> Export CSV
+      </button>
      </div>
      <div class="overflow-x-auto">
       <table class="data-table" id="summary-matrix">
@@ -433,7 +450,12 @@
     </div><!-- SKU Table -->
     <div class="panel mb-8 animate-in delay-3">
      <div class="flex items-center justify-between mb-5">
-      <h3 class="text-lg font-semibold" style="color: var(--color-text);">SKU (Part Number) Summary</h3><span class="text-sm font-semibold" style="color: var(--color-muted);">Each SN is assigned to its latest Part Number in range</span>
+      <h3 class="text-lg font-semibold" style="color: var(--color-text);">SKU (Part Number) Summary</h3>
+      <button class="btn-ghost btn-mini" id="export-sku" type="button" title="Export SKU table to CSV">
+       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-3-3m3 3l3-3M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path>
+       </svg> Export CSV
+      </button>
      </div>
      <div class="overflow-x-auto">
       <table class="data-table" id="sku-table">
@@ -455,7 +477,20 @@
     </div><!-- Breakdown Table -->
     <div class="panel animate-in delay-4">
      <div class="flex items-center justify-between mb-5">
-      <h3 class="text-lg font-semibold" style="color: var(--color-text);">Time Breakdown</h3><span class="text-sm font-bold" style="color: var(--color-muted);" id="breakdown-label">Daily</span>
+      <h3 class="text-lg font-semibold" style="color: var(--color-text);">Time Breakdown</h3>
+      <div class="flex items-center gap-3">
+        <div class="toggle-group">
+          <button class="toggle-btn active" id="agg-daily">Daily</button>
+          <button class="toggle-btn" id="agg-weekly">Weekly</button>
+          <button class="toggle-btn" id="agg-monthly">Monthly</button>
+        </div>
+        <span class="text-sm font-semibold" style="color: var(--color-muted);" id="breakdown-label">-</span>
+        <button class="btn-ghost btn-mini" id="export-breakdown" type="button" title="Export Time Breakdown to CSV">
+         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-3-3m3 3l3-3M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path>
+         </svg> Export CSV
+        </button>
+      </div>
      </div>
      <div class="overflow-x-auto">
       <table class="data-table" id="breakdown-table">
@@ -552,8 +587,15 @@
      document.getElementById('agg-daily').classList.toggle('active', a === 'daily');
      document.getElementById('agg-weekly').classList.toggle('active', a === 'weekly');
      document.getElementById('agg-monthly').classList.toggle('active', a === 'monthly');
-     document.getElementById('breakdown-label').textContent = a.charAt(0).toUpperCase() + a.slice(1);
+    updateRangeNotes();
    }
+
+  function updateRangeNotes() {
+    const p = getRangePayload();
+    const rangeText = `${p.start_datetime} → ${p.end_datetime} (CA)`;
+    const el = document.getElementById('breakdown-label');
+    if (el) el.textContent = rangeText;
+  }
 
    // Helpers
    function fmtPct(x) {
@@ -692,6 +734,43 @@
      setLoading(false);
    }
 
+   function _filenameFromDisposition(cd) {
+     if (!cd) return null;
+     const m = /filename=\"?([^\";]+)\"?/i.exec(cd);
+     return m ? m[1] : null;
+   }
+
+   async function downloadCsv(exportKind) {
+     const payload = getRangePayload();
+     setLoading(true, 'Preparing export...');
+     const res = await fetch('/api/export', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ ...payload, aggregation, export: exportKind })
+     });
+     if (!res.ok) {
+       let msg = `export failed (${res.status})`;
+       try {
+         const j = await res.json();
+         if (j && j.error) msg = j.error;
+       } catch (e) {}
+       setLoading(false);
+       throw new Error(msg);
+     }
+     const blob = await res.blob();
+     const cd = res.headers.get('content-disposition');
+     const filename = _filenameFromDisposition(cd) || `${exportKind || 'export'}.csv`;
+     const url = URL.createObjectURL(blob);
+     const a = document.createElement('a');
+     a.href = url;
+     a.download = filename;
+     document.body.appendChild(a);
+     a.click();
+     a.remove();
+     setTimeout(() => URL.revokeObjectURL(url), 2500);
+     setLoading(false);
+   }
+
    // Event listeners
    document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
    document.getElementById('upload-btn').addEventListener('click', openModal);
@@ -701,6 +780,35 @@
 
    document.getElementById('apply-filter').addEventListener('click', () => {
      runQuery().catch(err => {
+       console.error(err);
+       setLoading(false);
+       alert('Error: ' + err.message);
+     });
+   });
+
+   document.getElementById('export-all')?.addEventListener('click', () => {
+     downloadCsv('dashboard').catch(err => {
+       console.error(err);
+       setLoading(false);
+       alert('Error: ' + err.message);
+     });
+   });
+   document.getElementById('export-summary')?.addEventListener('click', () => {
+     downloadCsv('summary').catch(err => {
+       console.error(err);
+       setLoading(false);
+       alert('Error: ' + err.message);
+     });
+   });
+   document.getElementById('export-sku')?.addEventListener('click', () => {
+     downloadCsv('sku').catch(err => {
+       console.error(err);
+       setLoading(false);
+       alert('Error: ' + err.message);
+     });
+   });
+   document.getElementById('export-breakdown')?.addEventListener('click', () => {
+     downloadCsv('breakdown').catch(err => {
        console.error(err);
        setLoading(false);
        alert('Error: ' + err.message);
@@ -732,9 +840,17 @@
      }
    });
 
-   document.getElementById('agg-daily').addEventListener('click', () => setAgg('daily'));
-   document.getElementById('agg-weekly').addEventListener('click', () => setAgg('weekly'));
-   document.getElementById('agg-monthly').addEventListener('click', () => setAgg('monthly'));
+  const onAggClick = (a) => {
+    setAgg(a);
+    runQuery().catch(err => {
+      console.error(err);
+      setLoading(false);
+      alert('Error: ' + err.message);
+    });
+  };
+  document.getElementById('agg-daily').addEventListener('click', () => onAggClick('daily'));
+  document.getElementById('agg-weekly').addEventListener('click', () => onAggClick('weekly'));
+  document.getElementById('agg-monthly').addEventListener('click', () => onAggClick('monthly'));
 
    // Set default dates (last 7 days)
    const today = new Date();

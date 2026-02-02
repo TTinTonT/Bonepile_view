@@ -18,6 +18,8 @@ import re
 import sqlite3
 import threading
 import time
+import csv
+import io
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -47,8 +49,8 @@ RETENTION_DAYS = 90
 # IMPORTANT:
 # Oberon zip filenames end with "...YYYYMMDDTHHMMSSZ" but in this environment the timestamp
 # should be treated as *California local time* (PST/PDT), matching the hourly report logic.
-# If you change this mode, cached rows must be rebuilt because ca_date/ca_ms will change.
-TIMESTAMP_MODE = "ca_local_suffix_v2"
+# If you change this mode, cached rows must be rebuilt because computed CA fields will change.
+TIMESTAMP_MODE = "ca_local_suffix_v3"
 
 # Final pass rules
 PASS_AT_FCT_PART_NUMBERS = {
@@ -129,7 +131,7 @@ def ca_fields_from_utc(utc_dt: datetime) -> Tuple[int, str, int, str, str]:
     - ca_ms (epoch ms of the instant)
     - ca_date (YYYY-MM-DD in CA)
     - ca_hour (0-23 in CA)
-    - ca_week (YYYY-Www ISO week in CA)
+    - ca_week (Sunday-start week in CA, formatted "YYYY-MM-DD~YYYY-MM-DD")
     - ca_month (YYYY-MM in CA)
     """
     # Despite the name, accept any tz-aware datetime and normalize to CA.
@@ -137,8 +139,12 @@ def ca_fields_from_utc(utc_dt: datetime) -> Tuple[int, str, int, str, str]:
     ca_ms = utc_ms(ca_dt)
     ca_date = ca_dt.strftime("%Y-%m-%d")
     ca_hour = int(ca_dt.strftime("%H"))
-    iso_year, iso_week, _ = ca_dt.isocalendar()
-    ca_week = f"{iso_year}-W{int(iso_week):02d}"
+    # Week starts on Sunday and ends on Saturday.
+    # Python weekday(): Monday=0..Sunday=6, so days_since_sunday maps Sunday->0, Monday->1, ..., Saturday->6.
+    days_since_sunday = (ca_dt.weekday() + 1) % 7
+    week_start = (ca_dt - timedelta(days=days_since_sunday)).date()
+    week_end = (week_start + timedelta(days=6))
+    ca_week = f"{week_start.strftime('%Y-%m-%d')}~{week_end.strftime('%Y-%m-%d')}"
     ca_month = ca_dt.strftime("%Y-%m")
     return ca_ms, ca_date, ca_hour, ca_week, ca_month
 
@@ -1525,6 +1531,259 @@ def api_query():
             "test_flow": test_flow,
         }
     )
+
+
+def _csv_response(text: str, filename: str) -> Response:
+    resp = Response(text, mimetype="text/csv; charset=utf-8")
+    resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def _excel_text_cell(value: Any) -> str:
+    """
+    Make CSV cells safer for Excel auto-parsing.
+
+    Excel often interprets strings like "183/66" as dates. To prevent that,
+    emit an Excel text formula: ="183/66".
+    """
+    if value is None:
+        return ""
+    s = str(value)
+    # Prevent scientific notation for long numeric IDs (e.g. SN).
+    if re.fullmatch(r"\d{10,}", s):
+        return f'="{s}"'
+    # Common Excel auto-date patterns.
+    if re.fullmatch(r"\d{1,4}/\d{1,4}", s) or re.fullmatch(r"\d{1,4}/\d{1,4}/\d{1,4}", s):
+        return f'="{s}"'
+    return s
+
+
+def _fmt_ca_ms(ms: Optional[int]) -> str:
+    if not ms:
+        return ""
+    try:
+        dt = datetime.fromtimestamp(int(ms) / 1000, CA_TZ)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return ""
+
+
+def _parse_range_from_payload(payload: Dict[str, Any]) -> Tuple[Optional[Response], Optional[datetime], Optional[datetime]]:
+    start_dt = payload.get("start_datetime")
+    end_dt = payload.get("end_datetime")
+    if not start_dt or not end_dt:
+        return jsonify({"error": "start_datetime and end_datetime required"}), None, None
+    try:
+        start_ca = CA_TZ.localize(datetime.strptime(start_dt, "%Y-%m-%d %H:%M"))
+        end_ca = CA_TZ.localize(datetime.strptime(end_dt, "%Y-%m-%d %H:%M"))
+    except Exception:
+        return jsonify({"error": "datetime format must be YYYY-MM-DD HH:MM"}), None, None
+
+    now_ca = datetime.now(CA_TZ).replace(microsecond=0)
+    if end_ca > now_ca:
+        end_ca = now_ca
+    if start_ca > now_ca:
+        return jsonify({"error": "start is in the future"}), None, None
+    if end_ca <= start_ca:
+        return jsonify({"error": "end must be after start"}), None, None
+    return None, start_ca, end_ca
+
+
+@app.route("/api/export", methods=["POST"])
+def api_export():
+    """
+    Export CSV for a specific dashboard container or the whole dashboard.
+
+    Payload:
+      - start_datetime: "YYYY-MM-DD HH:MM"
+      - end_datetime: "YYYY-MM-DD HH:MM"
+      - aggregation: daily|weekly|monthly (used for breakdown)
+      - export: one of: summary|sku|breakdown|test_flow|dashboard
+    """
+    payload = request.json or {}
+    export_kind = (payload.get("export") or "dashboard").strip().lower()
+    aggregation = (payload.get("aggregation") or "daily").strip().lower()
+    if aggregation not in ("daily", "weekly", "monthly"):
+        aggregation = "daily"
+
+    err, start_ca, end_ca = _parse_range_from_payload(payload)
+    if err is not None:
+        return err
+    assert start_ca is not None and end_ca is not None
+
+    rows = query_entries_in_range(start_ca, end_ca)
+    computed = compute_stats(rows, aggregation=aggregation)
+    test_flow = compute_test_flow(rows)
+    details = compute_sn_details(rows)
+
+    # Build CSV
+    out = io.StringIO()
+    w = csv.writer(out, lineterminator="\n")
+
+    def write_summary():
+        w.writerow(["metric", "bp", "fresh", "total"])
+        s = computed["summary"]
+        for m in ("tested", "pass", "fail"):
+            w.writerow([m, s["bp"][m], s["fresh"][m], s["total"][m]])
+
+    def write_sku():
+        w.writerow(["sku", "tested", "pass", "fail"])
+        for r in computed["sku_rows"]:
+            w.writerow([r.get("sku"), r.get("tested"), r.get("pass"), r.get("fail")])
+
+    def write_breakdown():
+        w.writerow(["period", "tested", "passed", "bonepile", "fresh", "pass_rate"])
+        for r in computed["breakdown_rows"]:
+            w.writerow(
+                [
+                    r.get("period"),
+                    r.get("tested"),
+                    r.get("passed"),
+                    r.get("bonepile"),
+                    r.get("fresh"),
+                    f"{float(r.get('pass_rate') or 0.0):.4f}",
+                ]
+            )
+
+    def write_test_flow():
+        stations = test_flow.get("stations") or []
+        w.writerow(["ts", "sku"] + list(stations))
+        totals = test_flow.get("totals") or {}
+        w.writerow(
+            ["-", "TOTAL"]
+            + [
+                _excel_text_cell(f"{(totals.get(st) or {}).get('pass', 0)}/{(totals.get(st) or {}).get('fail', 0)}")
+                for st in stations
+            ]
+        )
+        for r in (test_flow.get("rows") or []):
+            row_vals = [r.get("ts"), r.get("sku")]
+            st_map = r.get("stations") or {}
+            for st in stations:
+                cell = st_map.get(st) or {}
+                row_vals.append(_excel_text_cell(f"{cell.get('pass', 0)}/{cell.get('fail', 0)}"))
+            w.writerow(row_vals)
+
+    start_s = start_ca.strftime("%Y%m%d_%H%M")
+    end_s = end_ca.strftime("%Y%m%d_%H%M")
+
+    if export_kind == "summary":
+        write_summary()
+        return _csv_response(out.getvalue(), f"summary_{start_s}_to_{end_s}.csv")
+    if export_kind == "sku":
+        write_sku()
+        return _csv_response(out.getvalue(), f"sku_{start_s}_to_{end_s}.csv")
+    if export_kind == "breakdown":
+        write_breakdown()
+        return _csv_response(out.getvalue(), f"breakdown_{aggregation}_{start_s}_to_{end_s}.csv")
+    if export_kind in ("test_flow", "testflow"):
+        write_test_flow()
+        return _csv_response(out.getvalue(), f"test_flow_{start_s}_to_{end_s}.csv")
+
+    # dashboard (single table, per-SN; matches user's requested "one table only")
+    # Columns are designed for Excel-friendly review.
+    sn_rows: Dict[str, List[sqlite3.Row]] = {}
+    for r in rows:
+        sn_rows.setdefault(r["sn"], []).append(r)
+
+    # Map details by SN for extra columns
+    by_sn = {d.get("sn"): d for d in (details or []) if d.get("sn")}
+
+    station_order = ["FLA", "FLB", "AST", "FTS", "FCT", "RIN", "NVL"]
+
+    w.writerow(
+        [
+            "SN",
+            "Bonepile",
+            "Pass/Fail",
+            "Part Numbers",
+            "Stations",
+            "Test Count",
+            "Pass Count",
+            "Fail Count",
+            "First Seen (CA)",
+            "Last Seen (CA)",
+            "Last Station",
+            "Last Folder ID",
+            "Last Filename",
+            "Last Final Pass Time (CA)",
+            "Last Fail Time (CA)",
+        ]
+    )
+
+    for sn in sorted(sn_rows.keys()):
+        tests = sn_rows.get(sn) or []
+        # Status counts
+        p_cnt = 0
+        f_cnt = 0
+        is_bp = False
+        stations_seen: set = set()
+        part_seen: set = set()
+        min_ca = None
+        max_ca = None
+        for t in tests:
+            st = str(t["station"] or "").strip().upper()
+            if st:
+                stations_seen.add(st)
+            pn = t["part_number"] or ""
+            if pn:
+                part_seen.add(pn)
+            status = str(t["status"] or "").strip().upper()
+            if status == "P":
+                p_cnt += 1
+            elif status == "F":
+                f_cnt += 1
+            if (t["is_bonepile"] or 0) == 1:
+                is_bp = True
+            try:
+                ca_ms = int(t["ca_ms"])
+                if min_ca is None or ca_ms < min_ca:
+                    min_ca = ca_ms
+                if max_ca is None or ca_ms > max_ca:
+                    max_ca = ca_ms
+            except Exception:
+                pass
+
+        # Order stations nicely
+        ordered = [s for s in station_order if s in stations_seen]
+        extras = sorted([s for s in stations_seen if s not in station_order])
+        stations_txt = ", ".join(ordered + extras)
+
+        d = by_sn.get(sn) or {}
+        last_part = d.get("last_part_number") or ""
+        # Prefer latest part number for the main column, but keep multiple if needed
+        if last_part and len(part_seen) > 1:
+            parts_txt = "; ".join([last_part] + sorted([p for p in part_seen if p != last_part]))
+        elif last_part:
+            parts_txt = last_part
+        else:
+            parts_txt = "; ".join(sorted(part_seen))
+
+        # PASS/FAIL per dashboard: align with our UI "is_pass" definition (final pass)
+        passfail = "PASS" if int(d.get("is_pass") or 0) == 1 else "FAIL"
+
+        w.writerow(
+            [
+                _excel_text_cell(sn),
+                "Yes" if is_bp else "No",
+                passfail,
+                parts_txt,
+                stations_txt,
+                len(tests),
+                p_cnt,
+                f_cnt,
+                _fmt_ca_ms(min_ca),
+                _fmt_ca_ms(max_ca),
+                d.get("last_station") or "",
+                d.get("last_folder_id") or "",
+                d.get("last_filename") or "",
+                _fmt_ca_ms(d.get("pass_ca_ms")),
+                _fmt_ca_ms(d.get("fail_ca_ms")),
+            ]
+        )
+
+    return _csv_response(out.getvalue(), f"dashboard_{start_s}_to_{end_s}.csv")
 
 
 @app.route("/api/sn-list", methods=["POST"])

@@ -140,6 +140,15 @@
     border-color: var(--color-primary);
     color: var(--color-primary);
   }
+  .btn-mini{
+    padding: 0.45rem 0.85rem;
+    border-radius: 10px;
+    font-size: 0.875rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
   main {
     max-width: 1400px;
     margin: 0 auto;
@@ -617,6 +626,46 @@
     .header-actions { gap: 0.5rem; }
     .icon-btn { width: 38px; height: 38px; }
   }
+
+  /* Sticky API status (bottom-left, always visible) */
+  .api-status {
+    position: fixed;
+    left: 14px;
+    bottom: 14px;
+    z-index: 250;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 999px;
+    border: 1.5px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.10);
+    font-weight: 700;
+    font-size: 0.875rem;
+    max-width: min(520px, calc(100vw - 28px));
+    pointer-events: none;
+  }
+  .api-status .dot{
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--color-muted);
+    flex: 0 0 auto;
+  }
+  .api-status .text{
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .api-status.ok .dot{ background: var(--color-accent); }
+  .api-status.busy .dot{ background: var(--color-primary); }
+  .api-status.warn .dot{ background: #F59E0B; }
+  .api-status.err .dot{ background: #EF4444; }
+  .api-status.busy{ border-color: rgba(99,102,241,.45); }
+  .api-status.err{ border-color: rgba(239,68,68,.45); }
+  .api-status.warn{ border-color: rgba(245,158,11,.45); }
  </style>
   <style>@view-transition { navigation: auto; }</style>
   <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
@@ -632,7 +681,14 @@
        </svg>
        <svg id="moon-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
-       </svg></button> <button class="btn-primary" id="upload-btn" type="button">
+      </svg></button>
+      <button class="btn-ghost btn-mini" id="export-all" type="button" title="Export all dashboard data to CSV">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-3-3m3 3l3-3M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path>
+        </svg>
+        Export All
+      </button>
+      <button class="btn-primary" id="upload-btn" type="button">
        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
        </svg> Upload </button>
@@ -643,8 +699,6 @@
     <div class="panel mb-8 animate-in delay-1">
      <div class="flex items-center justify-between mb-6">
       <h3 class="text-lg font-semibold" style="color: var(--color-text);">Filters &amp; Time Range</h3>
-      <div class="toggle-group"><button class="toggle-btn active" id="agg-daily">Daily</button> <button class="toggle-btn" id="agg-weekly">Weekly</button> <button class="toggle-btn" id="agg-monthly">Monthly</button>
-      </div>
      </div>
      <div class="grid grid-cols-1 md:grid-cols-2 gap-6"><!-- Start Time -->
       <div><label class="block text-sm font-bold mb-3" style="color: var(--color-text);">Start Time</label>
@@ -715,7 +769,16 @@
     <h2 id="summary-title" class="text-2xl font-bold mb-6 animate-in delay-2" style="color: var(--color-text);">Summary Overview</h2><!-- Summary Matrix -->
     <div class="panel mb-8 animate-in delay-2">
      <div class="flex items-center justify-between mb-5">
-      <h3 class="text-lg font-semibold" style="color: var(--color-text);">Tray Summary (Unique SN)</h3><span class="text-sm font-semibold" style="color: var(--color-muted);" id="range-note-summary">-</span>
+      <h3 class="text-lg font-semibold" style="color: var(--color-text);">Tray Summary (Unique SN)</h3>
+      <div class="flex items-center gap-3">
+        <span class="text-sm font-semibold" style="color: var(--color-muted);" id="range-note-summary">-</span>
+        <button class="btn-ghost btn-mini" id="export-summary" type="button" title="Export Tray Summary to CSV">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-3-3m3 3l3-3M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path>
+          </svg>
+          Export CSV
+        </button>
+      </div>
      </div>
      <div class="overflow-x-auto">
       <table class="data-table" id="summary-matrix">
@@ -752,7 +815,16 @@
     </div><!-- SKU Table -->
     <div class="panel mb-8 animate-in delay-3">
      <div class="flex items-center justify-between mb-5">
-      <h3 class="text-lg font-semibold" style="color: var(--color-text);">SKU (Part Number) Summary</h3><span class="text-sm font-semibold" style="color: var(--color-muted);" id="range-note-sku">-</span>
+      <h3 class="text-lg font-semibold" style="color: var(--color-text);">SKU (Part Number) Summary</h3>
+      <div class="flex items-center gap-3">
+        <span class="text-sm font-semibold" style="color: var(--color-muted);" id="range-note-sku">-</span>
+        <button class="btn-ghost btn-mini" id="export-sku" type="button" title="Export SKU table to CSV">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-3-3m3 3l3-3M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path>
+          </svg>
+          Export CSV
+        </button>
+      </div>
      </div>
      <div class="overflow-x-auto">
       <table class="data-table" id="sku-table">
@@ -774,7 +846,21 @@
     </div><!-- Breakdown Table -->
     <div class="panel mb-8 animate-in delay-4">
      <div class="flex items-center justify-between mb-5">
-      <h3 class="text-lg font-semibold" style="color: var(--color-text);">Time Breakdown</h3><span class="text-sm font-bold" style="color: var(--color-muted);" id="breakdown-label">Daily</span>
+      <h3 class="text-lg font-semibold" style="color: var(--color-text);">Time Breakdown</h3>
+      <div class="flex items-center gap-3">
+        <div class="toggle-group">
+          <button class="toggle-btn active" id="agg-daily">Daily</button>
+          <button class="toggle-btn" id="agg-weekly">Weekly</button>
+          <button class="toggle-btn" id="agg-monthly">Monthly</button>
+        </div>
+        <span class="text-sm font-semibold" style="color: var(--color-muted);" id="breakdown-label">-</span>
+        <button class="btn-ghost btn-mini" id="export-breakdown" type="button" title="Export Time Breakdown to CSV">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-3-3m3 3l3-3M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path>
+          </svg>
+          Export CSV
+        </button>
+      </div>
      </div>
      <div class="overflow-x-auto">
       <table class="data-table" id="breakdown-table">
@@ -805,7 +891,7 @@
             <h2 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text);">Test Flow Analysis</h2>
             <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--color-muted);">Station-by-station test results breakdown</p>
           </div>
-          <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.25rem;">
+          <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.35rem;">
             <div class="tf-legend" aria-label="Test Flow legend">
               <span style="font-weight: 700;">Cell:</span>
               <span class="demo-pill" title="Cell value format">
@@ -813,6 +899,12 @@
               </span>
             </div>
             <div class="tf-range" id="range-note-flow">-</div>
+            <button class="btn-ghost btn-mini" id="export-flow" type="button" title="Export Test Flow to CSV">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-3-3m3 3l3-3M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path>
+              </svg>
+              Export CSV
+            </button>
           </div>
         </div>
       </div>
@@ -845,6 +937,10 @@
     </div>
    </main>
   </div><!-- Loading overlay -->
+  <div class="api-status ok" id="api-status" aria-live="polite" aria-atomic="true">
+    <span class="dot" aria-hidden="true"></span>
+    <span class="text" id="api-status-text">Ready</span>
+  </div>
   <div class="loading-overlay" id="loading-overlay">
    <div class="panel" style="background: rgba(15, 23, 42, 0.95); border-color: rgba(99, 102, 241, 0.3); color: white; max-width: 520px;">
     <div class="flex items-center gap-4">
@@ -949,6 +1045,16 @@
      el.classList.toggle('active', !!active);
    }
 
+  // Sticky API status (bottom-left)
+  function setApiStatus(message, level = 'ok') {
+    const box = document.getElementById('api-status');
+    const text = document.getElementById('api-status-text');
+    if (!box || !text) return;
+    text.textContent = message || 'Ready';
+    box.classList.remove('ok', 'busy', 'warn', 'err');
+    box.classList.add(level);
+  }
+
    // Aggregation toggle
    let aggregation = 'daily';
    function setAgg(a) {
@@ -956,7 +1062,6 @@
      document.getElementById('agg-daily').classList.toggle('active', a === 'daily');
      document.getElementById('agg-weekly').classList.toggle('active', a === 'weekly');
      document.getElementById('agg-monthly').classList.toggle('active', a === 'monthly');
-    document.getElementById('breakdown-label').textContent = a.charAt(0).toUpperCase() + a.slice(1);
     updateRangeNotes();
    }
 
@@ -1195,12 +1300,48 @@
     set('range-note-summary', rangeText);
     set('range-note-sku', rangeText);
     set('range-note-flow', rangeText);
-    // Keep aggregation label, but show range next to it.
-    const bl = document.getElementById('breakdown-label');
-    if (bl) {
-      const aggLabel = (aggregation || 'daily');
-      bl.textContent = `${aggLabel.charAt(0).toUpperCase() + aggLabel.slice(1)} • ${rangeText}`;
+    // Time breakdown shows current range next to the toggle.
+    set('breakdown-label', rangeText);
+  }
+
+  function _filenameFromDisposition(cd) {
+    if (!cd) return null;
+    const m = /filename=\"?([^\";]+)\"?/i.exec(cd);
+    return m ? m[1] : null;
+  }
+
+  async function downloadCsv(exportKind) {
+    const payload = getRangePayload();
+    setLoading(true, 'Preparing export...');
+    setApiStatus(`Exporting ${exportKind || 'csv'}...`, 'busy');
+    const res = await fetch('/api/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, aggregation, export: exportKind })
+    });
+    if (!res.ok) {
+      let msg = `export failed (${res.status})`;
+      try {
+        const j = await res.json();
+        if (j && j.error) msg = j.error;
+      } catch (e) {}
+      setLoading(false);
+      setApiStatus(msg, 'err');
+      throw new Error(msg);
     }
+    const blob = await res.blob();
+    const cd = res.headers.get('content-disposition');
+    const filename = _filenameFromDisposition(cd) || `${exportKind || 'export'}.csv`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2500);
+    setApiStatus('Download started', 'ok');
+    setLoading(false);
   }
 
    async function pollJob(jobId) {
@@ -1219,6 +1360,7 @@
      const payload = getRangePayload();
      if (forceScan) {
        setLoading(true, 'Starting manual scan...');
+      setApiStatus('Manual scan requested...', 'busy');
        const res = await fetch('/api/scan', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
@@ -1230,6 +1372,7 @@
      }
 
      setLoading(true, 'Loading data...');
+    setApiStatus('Querying data...', 'busy');
      const res = await fetch('/api/query', {
        method: 'POST',
        headers: { 'Content-Type': 'application/json' },
@@ -1248,6 +1391,7 @@
        // Not an error: just tell user data may be incomplete.
        console.warn('Query range not fully covered by cache yet', data.coverage);
      }
+    setApiStatus('Ready', 'ok');
      setLoading(false);
    }
 
@@ -1325,6 +1469,7 @@
      runQuery().catch(err => {
        console.error(err);
        setLoading(false);
+      setApiStatus('Error: ' + err.message, 'err');
        alert('Error: ' + err.message);
      });
    });
@@ -1332,6 +1477,43 @@
    document.getElementById('refresh-page').addEventListener('click', () => {
      location.reload();
    });
+
+  // Export buttons
+  document.getElementById('export-all').addEventListener('click', () => {
+    downloadCsv('dashboard').catch(err => {
+      console.error(err);
+      setLoading(false);
+      alert('Error: ' + err.message);
+    });
+  });
+  document.getElementById('export-summary').addEventListener('click', () => {
+    downloadCsv('summary').catch(err => {
+      console.error(err);
+      setLoading(false);
+      alert('Error: ' + err.message);
+    });
+  });
+  document.getElementById('export-sku').addEventListener('click', () => {
+    downloadCsv('sku').catch(err => {
+      console.error(err);
+      setLoading(false);
+      alert('Error: ' + err.message);
+    });
+  });
+  document.getElementById('export-breakdown').addEventListener('click', () => {
+    downloadCsv('breakdown').catch(err => {
+      console.error(err);
+      setLoading(false);
+      alert('Error: ' + err.message);
+    });
+  });
+  document.getElementById('export-flow').addEventListener('click', () => {
+    downloadCsv('test_flow').catch(err => {
+      console.error(err);
+      setLoading(false);
+      alert('Error: ' + err.message);
+    });
+  });
 
    // Metric drilldown clicks (Summary matrix)
    document.getElementById('summary-matrix').addEventListener('click', (e) => {
@@ -1430,6 +1612,7 @@
      runQuery({forceScan: true}).catch(err => {
        console.error(err);
        setLoading(false);
+      setApiStatus('Error: ' + err.message, 'err');
        alert('Error: ' + err.message);
      });
    });
@@ -1451,9 +1634,18 @@
      }
    });
 
-   document.getElementById('agg-daily').addEventListener('click', () => setAgg('daily'));
-   document.getElementById('agg-weekly').addEventListener('click', () => setAgg('weekly'));
-   document.getElementById('agg-monthly').addEventListener('click', () => setAgg('monthly'));
+  const onAggClick = (a) => {
+    setAgg(a);
+    // Refresh view using the same cached data (no scan).
+    runQuery().catch(err => {
+      console.error(err);
+      setLoading(false);
+      alert('Error: ' + err.message);
+    });
+  };
+  document.getElementById('agg-daily').addEventListener('click', () => onAggClick('daily'));
+  document.getElementById('agg-weekly').addEventListener('click', () => onAggClick('weekly'));
+  document.getElementById('agg-monthly').addEventListener('click', () => onAggClick('monthly'));
 
    // Set default dates (last 7 days)
   const now = new Date();
