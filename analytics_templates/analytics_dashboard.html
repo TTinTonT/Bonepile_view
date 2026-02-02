@@ -1,0 +1,1546 @@
+<!doctype html>
+<html lang="en" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analytics Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/_sdk/element_sdk.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+  <style>
+  body {
+    box-sizing: border-box;
+  }
+  
+  :root {
+    --color-primary: #6366F1;
+    --color-surface: #FFFFFF;
+    --color-text: #1E293B;
+    --color-bg: #F1F5F9;
+    --color-accent: #10B981;
+    --color-border: #E2E8F0;
+    --color-muted: #64748B;
+    --color-hover: #F8FAFC;
+    /* aliases for redesigned Test Flow */
+    --color-surface-hover: #F8FAFC;
+    --color-success: #10B981;
+    --color-danger: #EF4444;
+  }
+  .dark {
+    --color-primary: #818CF8;
+    --color-surface: #1E293B;
+    --color-text: #F1F5F9;
+    --color-bg: #0F172A;
+    --color-accent: #34D399;
+    --color-border: #334155;
+    --color-muted: #94A3B8;
+    --color-hover: #334155;
+    /* aliases for redesigned Test Flow */
+    --color-surface-hover: #334155;
+    --color-success: #34D399;
+    --color-danger: #FCA5A5;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--color-bg);
+    color: var(--color-text);
+    transition: background-color 0.3s, color 0.3s;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .app-wrapper {
+    min-height: 100%;
+    width: 100%;
+    overflow: auto;
+  }
+  header {
+    background: var(--color-surface);
+    border-bottom: 2px solid var(--color-border);
+    padding: 1.25rem 1.5rem;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+  .header-content {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  h1 {
+    font-size: 1.75rem;
+    font-weight: 800;
+    color: var(--color-text);
+    letter-spacing: -0.025em;
+  }
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .icon-btn {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-bg);
+    border: 1.5px solid var(--color-border);
+    color: var(--color-muted);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .icon-btn:hover {
+    background: var(--color-hover);
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    transform: translateY(-1px);
+  }
+  .btn-primary {
+    background: var(--color-primary);
+    color: white;
+    padding: 0.625rem 1.25rem;
+    border-radius: 10px;
+    border: none;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+  }
+  .btn-primary:hover {
+    background: #4F46E5;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--color-muted);
+    padding: 0.625rem 1.25rem;
+    border-radius: 10px;
+    border: 1.5px solid var(--color-border);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-ghost:hover {
+    background: var(--color-hover);
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+  }
+  main {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+  }
+  .panel {
+    background: var(--color-surface);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    border: 1.5px solid var(--color-border);
+    transition: all 0.3s;
+  }
+  .panel:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+  h2 {
+    font-size: 1.625rem;
+    font-weight: 800;
+    color: var(--color-text);
+    letter-spacing: -0.025em;
+  }
+  h3 {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--color-text);
+  }
+  .kpi-grid{
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+  }
+  @media (max-width: 1024px){
+    .kpi-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 640px){
+    .kpi-grid{ grid-template-columns: 1fr; }
+  }
+  .kpi-card{
+    background: linear-gradient(180deg, rgba(99,102,241,.10), rgba(99,102,241,0) 56%), var(--color-surface);
+    border: 1.5px solid var(--color-border);
+    border-radius: 16px;
+    padding: 1.25rem 1.25rem 1.1rem;
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+    transition: transform .15s, box-shadow .15s, border-color .15s;
+  }
+  .dark .kpi-card{
+    background: linear-gradient(180deg, rgba(129,140,248,.12), rgba(129,140,248,0) 56%), var(--color-surface);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35);
+  }
+  .kpi-card:hover{
+    transform: translateY(-2px);
+    border-color: rgba(99,102,241,.45);
+    box-shadow: 0 16px 30px rgba(15, 23, 42, 0.10);
+  }
+  .kpi-label{
+    font-size: .85rem;
+    font-weight: 700;
+    color: var(--color-muted);
+    letter-spacing: .02em;
+  }
+  .kpi-value{
+    margin-top: .5rem;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap: .75rem;
+  }
+  .flow-table th, .flow-table td{
+    text-align: center;
+    vertical-align: middle;
+  }
+  .flow-table td:first-child, .flow-table th:first-child{
+    text-align: left;
+  }
+  .flow-cell{
+    display:flex;
+    gap: .5rem;
+    justify-content:center;
+    align-items:center;
+    flex-wrap:wrap;
+  }
+  .flow-mix-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width: 54px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    border: 1px solid var(--color-border);
+    font-weight: 800;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    cursor:pointer;
+    transition: all .15s;
+    background: var(--color-bg);
+    color: var(--color-text);
+  }
+  .flow-mix-btn:hover{
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(15,23,42,.08);
+  }
+  .flow-mix-btn[disabled]{
+    opacity:.55;
+    cursor:not-allowed;
+    transform:none;
+    box-shadow:none;
+  }
+  .flow-pass-num{ color: #059669; font-weight: 900; }
+  .dark .flow-pass-num{ color: #34D399; }
+  .flow-fail-num{ color: #DC2626; font-weight: 900; }
+  .dark .flow-fail-num{ color: #FCA5A5; }
+  .flow-slash{ color: var(--color-muted); font-weight: 900; padding: 0 .15rem; }
+  .flow-group-row td{
+    background: var(--color-bg);
+    color: var(--color-muted);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+
+  /* ==========================
+     Test Flow (Redesigned)
+     ========================== */
+  #test-flow-panel.card{
+    padding: 0;
+    overflow: hidden;
+  }
+  #test-flow-panel .card-header{
+    padding: 1.5rem 1.75rem 1.25rem;
+    border-bottom: 1.5px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  #test-flow-panel .card-header-row{
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  #test-flow-panel .tf-legend{
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--color-muted);
+    font-size: 0.875rem;
+    white-space: nowrap;
+    padding-top: 0.15rem;
+  }
+  #test-flow-panel .tf-legend .demo-pill{
+    display: inline-flex;
+    align-items: center;
+    gap: 0.1rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    font-weight: 800;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+  #test-flow-panel .tf-legend .pass-count{ color: var(--color-success); }
+  #test-flow-panel .tf-legend .fail-count{ color: var(--color-danger); }
+  #test-flow-panel .tf-legend .slash{ color: var(--color-muted); font-weight: 900; padding: 0 0.05rem; }
+  #test-flow-panel .tf-range{
+    color: var(--color-muted);
+    font-size: 0.875rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  #test-flow-panel .table-container{
+    overflow-x: auto;
+    background: var(--color-surface);
+  }
+  #test-flow-table{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  #test-flow-table thead{
+    background: linear-gradient(to bottom, var(--color-surface-hover), var(--color-surface));
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  }
+  #test-flow-table th{
+    padding: 1rem 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--color-text);
+    border-bottom: 2px solid var(--color-border);
+    white-space: nowrap;
+  }
+  /* align station headers with centered station cells */
+  #test-flow-table th:nth-child(n+3){
+    text-align: center;
+    padding: 0.75rem 0.5rem;
+  }
+  #test-flow-table td{
+    padding: 0.875rem 0.75rem;
+    color: var(--color-text);
+  }
+  #test-flow-table tbody tr{
+    border-bottom: 1px solid var(--color-border);
+    transition: background-color 0.15s ease;
+  }
+  #test-flow-table tbody tr:hover{
+    background-color: var(--color-surface-hover);
+  }
+  #test-flow-table tbody tr:first-child{
+    background: linear-gradient(to right, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.02));
+    font-weight: 600;
+    border-bottom: 2px solid var(--color-primary);
+  }
+  #test-flow-table tbody tr:first-child:hover{
+    background: linear-gradient(to right, rgba(59, 130, 246, 0.12), rgba(59, 130, 246, 0.04));
+  }
+
+  /* station result cells */
+  #test-flow-table td[data-station-cell]{
+    text-align: center;
+    padding: 0.5rem;
+  }
+  #test-flow-table button[data-flow="1"]{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.15rem;
+    padding: 0.35rem 0.5rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 64px;
+    line-height: 1.1;
+  }
+  #test-flow-table button[data-flow="1"]:hover:not(:disabled){
+    background: var(--color-surface-hover);
+    border-color: var(--color-primary);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  }
+  #test-flow-table button[data-flow="1"]:disabled{
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  #test-flow-table button[data-flow="1"] .pass-count{
+    color: var(--color-success);
+    font-weight: 700;
+    font-size: 1rem;
+    line-height: 1.1;
+  }
+  #test-flow-table button[data-flow="1"] .fail-count{
+    color: var(--color-danger);
+    font-weight: 700;
+    font-size: 1rem;
+    line-height: 1.1;
+  }
+  #test-flow-table button[data-flow="1"] .slash{
+    color: var(--color-muted);
+    font-weight: 800;
+    font-size: 0.95rem;
+    padding: 0 0.05rem;
+  }
+  /* empty state marker for station cells */
+  #test-flow-table td[data-station-cell]:empty::after{
+    content: '—';
+    color: var(--color-muted);
+    font-size: 1.25rem;
+  }
+  @media (max-width: 768px){
+    #test-flow-table{ font-size: 0.8125rem; }
+    #test-flow-table th, #test-flow-table td{ padding: 0.625rem 0.5rem; }
+    #test-flow-table button[data-flow="1"]{ min-width: 56px; padding: 0.3rem 0.45rem; }
+  }
+  .input-field {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1.5px solid var(--color-border);
+    border-radius: 10px;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    transition: all 0.2s;
+    font-family: inherit;
+  }
+  .input-field:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  }
+  .toggle-group {
+    display: flex;
+    background: var(--color-bg);
+    border-radius: 10px;
+    padding: 0.375rem;
+    gap: 0.375rem;
+    border: 1.5px solid var(--color-border);
+  }
+  .toggle-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    background: transparent;
+    border: none;
+    color: var(--color-muted);
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .toggle-btn.active {
+    background: var(--color-surface);
+    color: var(--color-primary);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+  }
+  .data-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.9375rem;
+  }
+  .data-table thead th {
+    background: var(--color-bg);
+    padding: 1rem 1.25rem;
+    text-align: left;
+    font-weight: 700;
+    font-size: 0.875rem;
+    color: var(--color-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 2px solid var(--color-border);
+    position: sticky;
+    top: 0;
+  }
+  .data-table tbody td {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text);
+    font-weight: 500;
+  }
+  .data-table tbody tr {
+    transition: background 0.15s;
+  }
+  .data-table tbody tr:hover {
+    background: var(--color-hover);
+  }
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.375rem 0.875rem;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 0.875rem;
+    letter-spacing: 0.02em;
+  }
+  .status-success {
+    background: #D1FAE5;
+    color: #065F46;
+  }
+  .dark .status-success {
+    background: rgba(16, 185, 129, 0.15);
+    color: #6EE7B7;
+  }
+  .status-danger {
+    background: #FEE2E2;
+    color: #991B1B;
+  }
+  .dark .status-danger {
+    background: rgba(239, 68, 68, 0.15);
+    color: #FCA5A5;
+  }
+  .status-warning {
+    background: #FEF3C7;
+    color: #92400E;
+  }
+  .dark .status-warning {
+    background: rgba(251, 191, 36, 0.15);
+    color: #FCD34D;
+  }
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid rgba(99, 102, 241, 0.2);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  .loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.7);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .loading-overlay.active { display: flex; }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 1.5rem;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal-content {
+    background: var(--color-surface);
+    border-radius: 16px;
+    padding: 2rem;
+    max-width: 500px;
+    width: 100%;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    border: 1.5px solid var(--color-border);
+  }
+  .metric-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width: 54px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-weight: 800;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .metric-btn:hover{
+    border-color: rgba(99,102,241,.7);
+    box-shadow: 0 6px 16px rgba(15,23,42,.08);
+    transform: translateY(-1px);
+  }
+  .metric-btn:active{
+    transform: translateY(0);
+  }
+  .metric-btn[disabled]{
+    opacity: .55;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+  .animate-in {
+    animation: fadeInUp 0.5s ease-out forwards;
+    opacity: 0;
+  }
+  .delay-1 { animation-delay: 0.1s; }
+  .delay-2 { animation-delay: 0.2s; }
+  .delay-3 { animation-delay: 0.3s; }
+  .delay-4 { animation-delay: 0.4s; }
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @media (max-width: 768px) {
+    header { padding: 1rem; }
+    h1 { font-size: 1.375rem; }
+    main { padding: 1.25rem 1rem; }
+    .panel { padding: 1.25rem; }
+    .header-actions { gap: 0.5rem; }
+    .icon-btn { width: 38px; height: 38px; }
+  }
+ </style>
+  <style>@view-transition { navigation: auto; }</style>
+  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
+ </head>
+ <body class="h-full">
+  <div class="app-wrapper">
+   <header>
+    <div class="header-content">
+     <h1 id="dashboard-title">Analytics Dashboard</h1>
+     <div class="header-actions"><button class="icon-btn" id="theme-toggle" title="Toggle theme">
+       <svg id="sun-icon" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+       </svg>
+       <svg id="moon-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+       </svg></button> <button class="btn-primary" id="upload-btn" type="button">
+       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+       </svg> Upload </button>
+     </div>
+    </div>
+   </header>
+   <main><!-- Filter Panel -->
+    <div class="panel mb-8 animate-in delay-1">
+     <div class="flex items-center justify-between mb-6">
+      <h3 class="text-lg font-semibold" style="color: var(--color-text);">Filters &amp; Time Range</h3>
+      <div class="toggle-group"><button class="toggle-btn active" id="agg-daily">Daily</button> <button class="toggle-btn" id="agg-weekly">Weekly</button> <button class="toggle-btn" id="agg-monthly">Monthly</button>
+      </div>
+     </div>
+     <div class="grid grid-cols-1 md:grid-cols-2 gap-6"><!-- Start Time -->
+      <div><label class="block text-sm font-bold mb-3" style="color: var(--color-text);">Start Time</label>
+       <div class="grid grid-cols-2 gap-3">
+        <div><label for="start-date" class="block text-xs font-semibold mb-2" style="color: var(--color-muted);">Date</label> <input type="date" id="start-date" class="input-field w-full">
+        </div>
+        <div><label for="start-hour" class="block text-xs font-semibold mb-2" style="color: var(--color-muted);">Hour (24h)</label> <select id="start-hour" class="input-field w-full font-mono"> <option value="00" selected>00:00</option><option value="01">01:00</option><option value="02">02:00</option><option value="03">03:00</option> <option value="04">04:00</option><option value="05">05:00</option><option value="06">06:00</option><option value="07">07:00</option> <option value="08">08:00</option><option value="09">09:00</option><option value="10">10:00</option><option value="11">11:00</option> <option value="12">12:00</option><option value="13">13:00</option><option value="14">14:00</option><option value="15">15:00</option> <option value="16">16:00</option><option value="17">17:00</option><option value="18">18:00</option><option value="19">19:00</option> <option value="20">20:00</option><option value="21">21:00</option><option value="22">22:00</option><option value="23">23:00</option> </select>
+        </div>
+       </div>
+      </div><!-- End Time -->
+      <div><label class="block text-sm font-bold mb-3" style="color: var(--color-text);">End Time</label>
+       <div class="grid grid-cols-2 gap-3">
+        <div><label for="end-date" class="block text-xs font-semibold mb-2" style="color: var(--color-muted);">Date</label> <input type="date" id="end-date" class="input-field w-full">
+        </div>
+        <div><label for="end-hour" class="block text-xs font-semibold mb-2" style="color: var(--color-muted);">Hour (24h)</label> <select id="end-hour" class="input-field w-full font-mono"> <option value="00">00:00</option><option value="01">01:00</option><option value="02">02:00</option><option value="03">03:00</option> <option value="04">04:00</option><option value="05">05:00</option><option value="06">06:00</option><option value="07">07:00</option> <option value="08">08:00</option><option value="09">09:00</option><option value="10">10:00</option><option value="11">11:00</option> <option value="12">12:00</option><option value="13">13:00</option><option value="14">14:00</option><option value="15">15:00</option> <option value="16">16:00</option><option value="17">17:00</option><option value="18">18:00</option><option value="19">19:00</option> <option value="20">20:00</option><option value="21">21:00</option><option value="22">22:00</option><option value="23" selected>23:00</option> </select>
+        </div>
+       </div>
+      </div>
+     </div>
+     <div class="mt-6 flex items-center justify-between gap-3 flex-wrap">
+      <div class="text-sm" style="color: var(--color-muted);">
+        <div>
+          <span class="font-bold" style="color: var(--color-text);">Data coverage:</span>
+          <span id="cache-data-coverage" class="font-semibold">unknown</span>
+          <span class="ml-2" style="color: var(--color-muted);">
+            • Last scan: <span id="cache-last-scan" class="font-semibold">unknown</span>
+            <span class="ml-2">• Next auto-scan in: <span id="next-scan-countdown" class="font-semibold">--:--</span></span>
+          </span>
+        </div>
+      </div>
+      <div class="flex gap-3">
+        <button class="btn-ghost" id="clear-cache" type="button" style="border-color: rgba(239,68,68,.35); color: #ef4444;"> Clear Cache </button>
+        <button class="btn-ghost" id="refresh-page" type="button"> Refresh </button>
+        <button class="btn-ghost" id="manual-scan" type="button"> Manual Scan </button>
+        <button class="btn-primary" id="apply-filter" type="button">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+        </svg> Apply Filter </button>
+      </div>
+     </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="kpi-grid mb-8 animate-in delay-2" id="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-label">Total Tests Conducted</div>
+        <div class="kpi-value">
+          <div id="kpi-tested" class="text-3xl font-extrabold" style="color: var(--color-text);">-</div>
+          <button class="metric-btn" id="kpi-tested-btn" data-metric="tested" data-segment="total">View</button>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Passed Tests</div>
+        <div class="kpi-value">
+          <div id="kpi-pass" class="text-3xl font-extrabold" style="color: var(--color-text);">-</div>
+          <button class="metric-btn" id="kpi-pass-btn" data-metric="pass" data-segment="total">View</button>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Failed Tests</div>
+        <div class="kpi-value">
+          <div id="kpi-fail" class="text-3xl font-extrabold" style="color: var(--color-text);">-</div>
+          <button class="metric-btn" id="kpi-fail-btn" data-metric="fail" data-segment="total">View</button>
+        </div>
+      </div>
+    </div>
+
+    <h2 id="summary-title" class="text-2xl font-bold mb-6 animate-in delay-2" style="color: var(--color-text);">Summary Overview</h2><!-- Summary Matrix -->
+    <div class="panel mb-8 animate-in delay-2">
+     <div class="flex items-center justify-between mb-5">
+      <h3 class="text-lg font-semibold" style="color: var(--color-text);">Tray Summary (Unique SN)</h3><span class="text-sm font-semibold" style="color: var(--color-muted);" id="range-note-summary">-</span>
+     </div>
+     <div class="overflow-x-auto">
+      <table class="data-table" id="summary-matrix">
+       <thead>
+        <tr>
+         <th>Metric</th>
+         <th>BP</th>
+         <th>Fresh</th>
+         <th>Total</th>
+        </tr>
+       </thead>
+       <tbody>
+        <tr>
+         <td class="font-bold">Tested</td>
+         <td class="font-mono" id="m-tested-bp">-</td>
+         <td class="font-mono" id="m-tested-fresh">-</td>
+         <td class="font-mono" id="m-tested-total">-</td>
+        </tr>
+        <tr>
+         <td class="font-bold">Pass</td>
+         <td class="font-mono" id="m-pass-bp">-</td>
+         <td class="font-mono" id="m-pass-fresh">-</td>
+         <td class="font-mono" id="m-pass-total">-</td>
+        </tr>
+        <tr>
+         <td class="font-bold">Fail</td>
+         <td class="font-mono" id="m-fail-bp">-</td>
+         <td class="font-mono" id="m-fail-fresh">-</td>
+         <td class="font-mono" id="m-fail-total">-</td>
+        </tr>
+       </tbody>
+      </table>
+     </div>
+    </div><!-- SKU Table -->
+    <div class="panel mb-8 animate-in delay-3">
+     <div class="flex items-center justify-between mb-5">
+      <h3 class="text-lg font-semibold" style="color: var(--color-text);">SKU (Part Number) Summary</h3><span class="text-sm font-semibold" style="color: var(--color-muted);" id="range-note-sku">-</span>
+     </div>
+     <div class="overflow-x-auto">
+      <table class="data-table" id="sku-table">
+       <thead>
+        <tr>
+         <th>SKU</th>
+         <th>Tested</th>
+         <th>Pass</th>
+         <th>Fail</th>
+        </tr>
+       </thead>
+       <tbody id="sku-tbody">
+        <tr>
+         <td colspan="4" style="color: var(--color-muted);">No data yet. Apply a filter to load.</td>
+        </tr>
+       </tbody>
+      </table>
+     </div>
+    </div><!-- Breakdown Table -->
+    <div class="panel mb-8 animate-in delay-4">
+     <div class="flex items-center justify-between mb-5">
+      <h3 class="text-lg font-semibold" style="color: var(--color-text);">Time Breakdown</h3><span class="text-sm font-bold" style="color: var(--color-muted);" id="breakdown-label">Daily</span>
+     </div>
+     <div class="overflow-x-auto">
+      <table class="data-table" id="breakdown-table">
+       <thead>
+        <tr>
+         <th>Period</th>
+         <th>Tested</th>
+         <th>Passed</th>
+         <th>Bonepile</th>
+         <th>Fresh</th>
+         <th>Pass Rate</th>
+        </tr>
+       </thead>
+       <tbody id="breakdown-tbody">
+        <tr>
+         <td colspan="6" style="color: var(--color-muted);">No data yet. Apply a filter to load.</td>
+        </tr>
+       </tbody>
+      </table>
+     </div>
+    </div>
+
+    <!-- Test Flow Panel -->
+    <div class="panel card mb-8 animate-in delay-4" id="test-flow-panel">
+      <div class="card-header">
+        <div class="card-header-row">
+          <div>
+            <h2 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text);">Test Flow Analysis</h2>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--color-muted);">Station-by-station test results breakdown</p>
+          </div>
+          <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.25rem;">
+            <div class="tf-legend" aria-label="Test Flow legend">
+              <span style="font-weight: 700;">Cell:</span>
+              <span class="demo-pill" title="Cell value format">
+                <span class="pass-count">PASS</span><span class="slash">/</span><span class="fail-count">FAIL</span>
+              </span>
+            </div>
+            <div class="tf-range" id="range-note-flow">-</div>
+          </div>
+        </div>
+      </div>
+      <div class="table-container">
+        <table id="test-flow-table">
+          <thead>
+            <tr id="test-flow-head-row">
+              <th style="min-width: 100px;">TS</th>
+              <th style="min-width: 120px;">SKU</th>
+              <!-- Station columns will be dynamically inserted here -->
+            </tr>
+          </thead>
+          <tbody id="test-flow-tbody">
+            <tr>
+              <td colspan="100" style="text-align: center; padding: 3rem; color: var(--color-muted);">
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 0.75rem;">
+                  <svg width="48" height="48" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.5;">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                    <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                  </svg>
+                  <span style="font-weight: 500;">No test flow data available</span>
+                  <span style="font-size: 0.875rem;">Apply filters to load station results</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+   </main>
+  </div><!-- Loading overlay -->
+  <div class="loading-overlay" id="loading-overlay">
+   <div class="panel" style="background: rgba(15, 23, 42, 0.95); border-color: rgba(99, 102, 241, 0.3); color: white; max-width: 520px;">
+    <div class="flex items-center gap-4">
+     <div class="spinner"></div>
+     <div>
+      <div class="text-lg font-bold">
+       Scanning…
+      </div>
+      <div class="text-sm mt-1" style="color: rgba(255,255,255,0.8);" id="loading-text">
+       Preparing scan job
+      </div>
+     </div>
+    </div>
+   </div>
+  </div><!-- Upload Modal -->
+  <div class="modal-overlay" id="upload-modal">
+   <div class="modal-content">
+    <div class="flex items-center justify-between mb-6">
+     <h3 class="text-xl font-bold" style="color: var(--color-text);">Upload File</h3><button class="w-9 h-9 rounded-lg flex items-center justify-center transition-colors" style="background: var(--color-bg);" id="close-modal">
+      <svg class="w-5 h-5" style="color: var(--color-muted);" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+      </svg></button>
+    </div>
+    <div class="border-2 border-dashed rounded-xl p-8 text-center transition-colors" style="border-color: var(--color-border); background: var(--color-bg);" id="drop-zone">
+     <svg class="w-12 h-12 mx-auto mb-4" style="color: var(--color-primary);" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+     </svg>
+     <p class="font-semibold mb-2" style="color: var(--color-text);">Drag &amp; drop your file here</p>
+     <p class="text-sm mb-4" style="color: var(--color-muted);">or click to browse</p><input type="file" id="file-input" class="hidden" accept=".csv,.xlsx,.json"> <button class="btn-primary" id="browse-btn" type="button">Browse Files</button>
+    </div>
+    <p class="text-xs mt-4 text-center" style="color: var(--color-muted);">Supported formats: CSV, XLSX, JSON (Max 10MB)</p>
+   </div>
+  </div>
+
+  <!-- SN Drilldown Modal -->
+  <div class="modal-overlay" id="sn-modal">
+    <div class="modal-content" style="max-width: 1100px;">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 id="sn-modal-title" class="text-xl font-bold" style="color: var(--color-text);">SN List</h3>
+          <div id="sn-modal-subtitle" class="text-sm mt-1" style="color: var(--color-muted);">-</div>
+        </div>
+        <button class="w-9 h-9 rounded-lg flex items-center justify-center transition-colors" style="background: var(--color-bg);" id="close-sn-modal" title="Close">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+      <div class="overflow-x-auto" style="max-height: 70vh; overflow-y: auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>SN</th>
+              <th>Result</th>
+              <th>Pass Time (CA)</th>
+              <th>Part Number</th>
+              <th>Station</th>
+              <th>Last Folder ID</th>
+              <th>Last Filename</th>
+            </tr>
+          </thead>
+          <tbody id="sn-modal-tbody">
+            <tr><td colspan="7" style="color: var(--color-muted);">No data</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <script>
+   const defaultConfig = {
+     dashboard_title: 'Analytics Dashboard',
+     summary_title: 'Summary Overview',
+     primary_color: '#6366F1',
+     surface_color: '#FFFFFF',
+     text_color: '#1E293B',
+     background_color: '#F1F5F9',
+     accent_color: '#10B981'
+   };
+   let config = { ...defaultConfig };
+
+   // Theme
+   let isDarkMode = false;
+   function toggleTheme() {
+     isDarkMode = !isDarkMode;
+     document.documentElement.classList.toggle('dark', isDarkMode);
+     document.getElementById('sun-icon').classList.toggle('hidden', !isDarkMode);
+     document.getElementById('moon-icon').classList.toggle('hidden', isDarkMode);
+   }
+
+   // Modal handling
+   function openModal() { document.getElementById('upload-modal').classList.add('active'); }
+   function closeModal() { document.getElementById('upload-modal').classList.remove('active'); }
+
+   function openSnModal() { document.getElementById('sn-modal').classList.add('active'); }
+   function closeSnModal() { document.getElementById('sn-modal').classList.remove('active'); }
+
+   // Loading overlay
+   function setLoading(active, text) {
+     const el = document.getElementById('loading-overlay');
+     const t = document.getElementById('loading-text');
+     if (t && text) t.textContent = text;
+     el.classList.toggle('active', !!active);
+   }
+
+   // Aggregation toggle
+   let aggregation = 'daily';
+   function setAgg(a) {
+     aggregation = a;
+     document.getElementById('agg-daily').classList.toggle('active', a === 'daily');
+     document.getElementById('agg-weekly').classList.toggle('active', a === 'weekly');
+     document.getElementById('agg-monthly').classList.toggle('active', a === 'monthly');
+    document.getElementById('breakdown-label').textContent = a.charAt(0).toUpperCase() + a.slice(1);
+    updateRangeNotes();
+   }
+
+   // Helpers
+  const CA_TIME_ZONE = 'America/Los_Angeles';
+
+  function fmtDateTimeCAFromMs(ms) {
+    if (!ms) return 'unknown';
+    const d = new Date(ms);
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: CA_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(d);
+  }
+
+  function fmtDateCA(dateObj) {
+    // Returns YYYY-MM-DD in CA timezone (stable, not affected by user PC timezone).
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: CA_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(dateObj);
+    const y = parts.find(p => p.type === 'year')?.value || '1970';
+    const m = parts.find(p => p.type === 'month')?.value || '01';
+    const d = parts.find(p => p.type === 'day')?.value || '01';
+    return `${y}-${m}-${d}`;
+  }
+
+   function fmtPct(x) {
+     if (x === null || x === undefined) return '-';
+     return Math.round(x * 100) + '%';
+   }
+
+   function setText(id, value) {
+     const el = document.getElementById(id);
+     if (el) el.textContent = (value === null || value === undefined) ? '-' : value;
+   }
+
+   async function refreshCacheCoverage() {
+     try {
+       const res = await fetch('/api/status');
+       const data = await res.json();
+       applyStatusFromPayload(data);
+     } catch (e) {
+      document.getElementById('cache-data-coverage').textContent = 'unknown';
+      document.getElementById('cache-last-scan').textContent = 'unknown';
+     }
+   }
+
+   function fmtCountdown(seconds) {
+     const s = Math.max(0, Math.floor(seconds || 0));
+     const mm = String(Math.floor(s / 60)).padStart(2, '0');
+     const ss = String(s % 60).padStart(2, '0');
+     return `${mm}:${ss}`;
+   }
+
+   function startCountdownLoop() {
+     const el = document.getElementById('next-scan-countdown');
+     if (!el) return;
+     setInterval(() => {
+       const nextMs = window.__nextAutoScanMs;
+       const intervalSec = window.__scanIntervalSeconds || 300;
+       if (!nextMs) {
+         el.textContent = fmtCountdown(intervalSec);
+         return;
+       }
+       const remainingSec = (nextMs - Date.now()) / 1000;
+       el.textContent = fmtCountdown(remainingSec);
+     }, 1000);
+   }
+
+   function getRangePayload() {
+     const startDate = document.getElementById('start-date').value;
+     const endDate = document.getElementById('end-date').value;
+     const startHour = document.getElementById('start-hour').value;
+     const endHour = document.getElementById('end-hour').value;
+     return {
+       start_datetime: `${startDate} ${startHour}:00`,
+       // Treat end hour as inclusive (cover the full hour).
+       // Example: endHour=23 => include up to 23:59.
+       end_datetime: `${endDate} ${endHour}:59`,
+       aggregation
+     };
+   }
+
+   function setMetricCell(cellId, value, metric, segment) {
+     const td = document.getElementById(cellId);
+     if (!td) return;
+     const v = (value === null || value === undefined) ? '-' : value;
+     const disabled = (v === '-' || v === 0 || v === '0') ? 'disabled' : '';
+     td.innerHTML = `<button class="metric-btn" ${disabled} data-metric="${metric}" data-segment="${segment}">${v}</button>`;
+   }
+
+   function renderSummary(summary) {
+     setMetricCell('m-tested-bp', summary?.bp?.tested, 'tested', 'bp');
+     setMetricCell('m-tested-fresh', summary?.fresh?.tested, 'tested', 'fresh');
+     setMetricCell('m-tested-total', summary?.total?.tested, 'tested', 'total');
+     setMetricCell('m-pass-bp', summary?.bp?.pass, 'pass', 'bp');
+     setMetricCell('m-pass-fresh', summary?.fresh?.pass, 'pass', 'fresh');
+     setMetricCell('m-pass-total', summary?.total?.pass, 'pass', 'total');
+     setMetricCell('m-fail-bp', summary?.bp?.fail, 'fail', 'bp');
+     setMetricCell('m-fail-fresh', summary?.fresh?.fail, 'fail', 'fresh');
+     setMetricCell('m-fail-total', summary?.total?.fail, 'fail', 'total');
+
+     // KPI cards (total segment)
+     setText('kpi-tested', summary?.total?.tested);
+     setText('kpi-pass', summary?.total?.pass);
+     setText('kpi-fail', summary?.total?.fail);
+   }
+
+   function renderSkuRows(rows) {
+     const tbody = document.getElementById('sku-tbody');
+     if (!tbody) return;
+     if (!rows || !rows.length) {
+       tbody.innerHTML = `<tr><td colspan="4" style="color: var(--color-muted);">No data</td></tr>`;
+       return;
+     }
+    tbody.innerHTML = rows.map(r => {
+      const sku = (r.sku || 'Unknown');
+      const tested = r.tested ?? 0;
+      const pass = r.pass ?? 0;
+      const fail = r.fail ?? 0;
+      const dis = (v) => (v === 0 || v === '0') ? 'disabled' : '';
+      return `
+        <tr>
+          <td class="font-mono font-semibold">${sku}</td>
+          <td class="font-mono font-semibold"><button class="metric-btn" ${dis(tested)} data-sku="${sku}" data-metric="tested">${tested}</button></td>
+          <td class="font-mono"><button class="metric-btn" ${dis(pass)} data-sku="${sku}" data-metric="pass">${pass}</button></td>
+          <td class="font-mono"><button class="metric-btn" ${dis(fail)} data-sku="${sku}" data-metric="fail">${fail}</button></td>
+        </tr>
+      `;
+    }).join('');
+   }
+
+   function renderBreakdown(rows) {
+     const tbody = document.getElementById('breakdown-tbody');
+     if (!tbody) return;
+     if (!rows || !rows.length) {
+       tbody.innerHTML = `<tr><td colspan="6" style="color: var(--color-muted);">No data</td></tr>`;
+       return;
+     }
+    tbody.innerHTML = rows.map(r => {
+      const p = r.period;
+      const tested = r.tested ?? 0;
+      const passed = r.passed ?? 0;
+      const bonepile = r.bonepile ?? 0;
+      const fresh = r.fresh ?? 0;
+      const dis = (v) => (v === 0 || v === '0') ? 'disabled' : '';
+      return `
+        <tr>
+          <td class="font-mono font-semibold">${p}</td>
+          <td class="font-mono font-semibold"><button class="metric-btn" ${dis(tested)} data-period="${p}" data-metric="tested" data-segment="total">${tested}</button></td>
+          <td class="font-mono"><button class="metric-btn" ${dis(passed)} data-period="${p}" data-metric="pass" data-segment="total">${passed}</button></td>
+          <td class="font-mono font-semibold"><button class="metric-btn" ${dis(bonepile)} data-period="${p}" data-metric="tested" data-segment="bp">${bonepile}</button></td>
+          <td class="font-mono font-semibold"><button class="metric-btn" ${dis(fresh)} data-period="${p}" data-metric="tested" data-segment="fresh">${fresh}</button></td>
+          <td><span class="status-badge ${((r.pass_rate || 0) >= 0.5) ? 'status-success' : 'status-warning'}">${fmtPct(r.pass_rate || 0)}</span></td>
+        </tr>
+      `;
+    }).join('');
+   }
+
+  function renderTestFlow(flow) {
+    const headRow = document.getElementById('test-flow-head-row');
+    const tbody = document.getElementById('test-flow-tbody');
+    if (!headRow || !tbody) return;
+    if (!flow || !flow.stations || !flow.stations.length) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="100" style="text-align: center; padding: 3rem; color: var(--color-muted);">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.75rem;">
+              <svg width="48" height="48" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.5;">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+              </svg>
+              <span style="font-weight: 500;">No test flow data available</span>
+              <span style="font-size: 0.875rem;">Apply filters to load station results</span>
+            </div>
+          </td>
+        </tr>
+      `;
+      return;
+    }
+    const stations = flow.stations;
+    headRow.innerHTML =
+      `<th style="min-width: 100px;">TS</th><th style="min-width: 120px;">SKU</th>` +
+      stations.map(s => `<th>${s}</th>`).join('');
+
+    const mkCell = ({sku, station, pass, fail}) => {
+      const p = pass ?? 0;
+      const f = fail ?? 0;
+      if (p === 0 && f === 0) return `<td data-station-cell></td>`;
+      return `
+        <td data-station-cell>
+          <button data-flow="1" data-station="${station}" data-sku="${sku || ''}">
+            <span class="pass-count">${p}</span><span class="slash">/</span><span class="fail-count">${f}</span>
+          </button>
+        </td>
+      `;
+    };
+
+    const totalRow = `
+      <tr>
+        <td class="font-bold">-</td>
+        <td class="font-bold">TOTAL</td>
+        ${stations.map(st => mkCell({sku: '', station: st, pass: flow.totals?.[st]?.pass ?? 0, fail: flow.totals?.[st]?.fail ?? 0})).join('')}
+      </tr>
+    `;
+
+    const rowsHtml = (flow.rows || []).map(r => {
+      return `
+        <tr>
+          <td class="font-mono font-semibold">${r.ts}</td>
+          <td class="font-mono font-semibold">${r.sku}</td>
+          ${stations.map(st => mkCell({sku: r.sku, station: st, pass: r.stations?.[st]?.pass ?? 0, fail: r.stations?.[st]?.fail ?? 0})).join('')}
+        </tr>
+      `;
+    }).join('');
+
+    tbody.innerHTML = totalRow + rowsHtml;
+  }
+
+  function updateRangeNotes() {
+    const p = getRangePayload();
+    const rangeText = `${p.start_datetime} → ${p.end_datetime} (CA)`;
+    const set = (id, txt) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = txt;
+    };
+    set('range-note-summary', rangeText);
+    set('range-note-sku', rangeText);
+    set('range-note-flow', rangeText);
+    // Keep aggregation label, but show range next to it.
+    const bl = document.getElementById('breakdown-label');
+    if (bl) {
+      const aggLabel = (aggregation || 'daily');
+      bl.textContent = `${aggLabel.charAt(0).toUpperCase() + aggLabel.slice(1)} • ${rangeText}`;
+    }
+  }
+
+   async function pollJob(jobId) {
+     for (let i = 0; i < 600; i++) {
+       const res = await fetch(`/api/job/${encodeURIComponent(jobId)}`);
+       const data = await res.json();
+       if (data.status === 'done') return data;
+       if (data.status === 'error') throw new Error(data.error || 'scan error');
+       setLoading(true, data.message || 'Scanning...');
+       await new Promise(r => setTimeout(r, 1000));
+     }
+     throw new Error('scan timeout');
+   }
+
+   async function runQuery({forceScan = false} = {}) {
+     const payload = getRangePayload();
+     if (forceScan) {
+       setLoading(true, 'Starting manual scan...');
+       const res = await fetch('/api/scan', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ start_datetime: payload.start_datetime, end_datetime: payload.end_datetime })
+       });
+       const scan = await res.json();
+       if (scan.error) throw new Error(scan.error);
+       await pollJob(scan.job_id);
+     }
+
+     setLoading(true, 'Loading data...');
+     const res = await fetch('/api/query', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify(payload)
+     });
+     const data = await res.json();
+     if (data.error) throw new Error(data.error);
+
+     renderSummary(data.summary);
+     renderSkuRows(data.sku_rows);
+     renderBreakdown(data.breakdown_rows);
+   renderTestFlow(data.test_flow);
+     await refreshCacheCoverage();
+
+     if (data.is_fully_covered === false) {
+       // Not an error: just tell user data may be incomplete.
+       console.warn('Query range not fully covered by cache yet', data.coverage);
+     }
+     setLoading(false);
+   }
+
+   function fmtMaybe(ms) {
+     if (!ms) return '-';
+     return fmtDateTimeCAFromMs(ms);
+   }
+
+   function renderSnModalRows(rows) {
+     const tbody = document.getElementById('sn-modal-tbody');
+     if (!tbody) return;
+     if (!rows || !rows.length) {
+       tbody.innerHTML = `<tr><td colspan="7" style="color: var(--color-muted);">No data</td></tr>`;
+       return;
+     }
+     tbody.innerHTML = rows.map(r => {
+       const result = (r.result || '-').toUpperCase();
+       const badgeClass = (result === 'PASS') ? 'status-success' : 'status-danger';
+       return `
+         <tr>
+           <td class="font-mono font-semibold">${r.sn}</td>
+           <td><span class="status-badge ${badgeClass}">${result}</span></td>
+           <td class="font-mono">${fmtMaybe(r.pass_ca_ms)}</td>
+           <td class="font-mono font-semibold">${(r.last_part_number || 'Unknown')}</td>
+           <td class="font-mono">${(r.last_station || '-')}</td>
+           <td class="font-mono">${(r.last_folder_id || '-')}</td>
+           <td class="font-mono">${(r.last_filename || '-')}</td>
+         </tr>
+       `;
+     }).join('');
+   }
+
+   function metricLabel(metric) {
+     if (metric === 'tested') return 'Tested';
+     if (metric === 'pass') return 'Pass';
+     if (metric === 'fail') return 'Fail';
+     return metric;
+   }
+
+   function segmentLabel(seg) {
+     if (seg === 'bp') return 'BP';
+     if (seg === 'fresh') return 'Fresh';
+     if (seg === 'total') return 'Total';
+     return seg;
+   }
+
+   async function loadSnList(metric, segment, {sku = null, period = null} = {}) {
+     const payload = getRangePayload();
+     setLoading(true, 'Loading SN list...');
+     const res = await fetch('/api/sn-list', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ ...payload, metric, segment, sku, period, aggregation })
+     });
+     const data = await res.json();
+     if (data.error) throw new Error(data.error);
+
+     const title = `${metricLabel(metric)} • ${segmentLabel(segment)}`;
+     document.getElementById('sn-modal-title').textContent = title;
+     document.getElementById('sn-modal-subtitle').textContent = `${payload.start_datetime} → ${payload.end_datetime} (CA) • ${data.count || 0} SN`;
+     renderSnModalRows(data.rows || []);
+     setLoading(false);
+   }
+
+   // Event listeners
+   document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+   document.getElementById('upload-btn').addEventListener('click', openModal);
+   document.getElementById('close-modal').addEventListener('click', closeModal);
+   document.getElementById('upload-modal').addEventListener('click', (e) => { if (e.target.id === 'upload-modal') closeModal(); });
+   document.getElementById('close-sn-modal').addEventListener('click', closeSnModal);
+   document.getElementById('sn-modal').addEventListener('click', (e) => { if (e.target.id === 'sn-modal') closeSnModal(); });
+   document.getElementById('browse-btn').addEventListener('click', () => { document.getElementById('file-input').click(); });
+
+   document.getElementById('apply-filter').addEventListener('click', () => {
+     runQuery().catch(err => {
+       console.error(err);
+       setLoading(false);
+       alert('Error: ' + err.message);
+     });
+   });
+
+   document.getElementById('refresh-page').addEventListener('click', () => {
+     location.reload();
+   });
+
+   // Metric drilldown clicks (Summary matrix)
+   document.getElementById('summary-matrix').addEventListener('click', (e) => {
+     const btn = e.target?.closest?.('button[data-metric][data-segment]');
+     if (!btn) return;
+     if (btn.disabled) return;
+     const metric = btn.getAttribute('data-metric');
+     const segment = btn.getAttribute('data-segment');
+     openSnModal();
+     loadSnList(metric, segment).catch(err => {
+       console.error(err);
+       setLoading(false);
+       alert('Error: ' + err.message);
+     });
+   });
+
+   // KPI drilldown clicks
+   document.getElementById('kpi-row').addEventListener('click', (e) => {
+     const btn = e.target?.closest?.('button[data-metric][data-segment]');
+     if (!btn) return;
+     if (btn.disabled) return;
+     const metric = btn.getAttribute('data-metric');
+     const segment = btn.getAttribute('data-segment');
+     openSnModal();
+     loadSnList(metric, segment).catch(err => {
+       console.error(err);
+       setLoading(false);
+       alert('Error: ' + err.message);
+     });
+   });
+
+   // SKU drilldown clicks (each number becomes a button)
+   document.getElementById('sku-table').addEventListener('click', (e) => {
+     const btn = e.target?.closest?.('button[data-sku][data-metric]');
+     if (!btn) return;
+     if (btn.disabled) return;
+     const sku = btn.getAttribute('data-sku');
+     const metric = btn.getAttribute('data-metric');
+     openSnModal();
+     loadSnList(metric, 'total', { sku }).catch(err => {
+       console.error(err);
+       setLoading(false);
+       alert('Error: ' + err.message);
+     });
+   });
+
+   // Breakdown drilldown clicks
+   document.getElementById('breakdown-table').addEventListener('click', (e) => {
+     const btn = e.target?.closest?.('button[data-period][data-metric][data-segment]');
+     if (!btn) return;
+     if (btn.disabled) return;
+     const period = btn.getAttribute('data-period');
+     const metric = btn.getAttribute('data-metric');
+     const segment = btn.getAttribute('data-segment');
+     openSnModal();
+     loadSnList(metric, segment, { period }).catch(err => {
+       console.error(err);
+       setLoading(false);
+       alert('Error: ' + err.message);
+     });
+
+  // Test Flow drilldown clicks (station-level pass/fail)
+  document.getElementById('test-flow-table').addEventListener('click', (e) => {
+    const btn = e.target?.closest?.('button[data-flow="1"]');
+    if (!btn) return;
+    if (btn.disabled) return;
+    const station = btn.getAttribute('data-station');
+    const sku = (btn.getAttribute('data-sku') || '').trim() || null;
+
+    const payload = getRangePayload();
+    openSnModal();
+    setLoading(true, 'Loading SN list...');
+    fetch('/api/sn-list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, aggregation, sku, station, station_outcome: 'both' })
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        const title = `Test Flow • ${station}${sku ? (' • ' + sku) : ''}`;
+        document.getElementById('sn-modal-title').textContent = title;
+        document.getElementById('sn-modal-subtitle').textContent = `${payload.start_datetime} → ${payload.end_datetime} (CA) • ${data.count || 0} SN`;
+        renderSnModalRows(data.rows || []);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error(err);
+        setLoading(false);
+        alert('Error: ' + err.message);
+      });
+  });
+   });
+
+   document.getElementById('manual-scan').addEventListener('click', () => {
+     runQuery({forceScan: true}).catch(err => {
+       console.error(err);
+       setLoading(false);
+       alert('Error: ' + err.message);
+     });
+   });
+
+   document.getElementById('clear-cache').addEventListener('click', async () => {
+     try {
+       if (!confirm('Clear cache will delete local analytics cache and rescan from scratch. Continue?')) return;
+       setLoading(true, 'Clearing cache...');
+       const res = await fetch('/api/clear-cache', { method: 'POST' });
+       const data = await res.json();
+       if (data.error) throw new Error(data.error);
+       await refreshCacheCoverage();
+       setLoading(false);
+       alert('Cache cleared. Now run Manual Scan or Apply Filter to rebuild.');
+     } catch (err) {
+       console.error(err);
+       setLoading(false);
+       alert('Error: ' + (err?.message || err));
+     }
+   });
+
+   document.getElementById('agg-daily').addEventListener('click', () => setAgg('daily'));
+   document.getElementById('agg-weekly').addEventListener('click', () => setAgg('weekly'));
+   document.getElementById('agg-monthly').addEventListener('click', () => setAgg('monthly'));
+
+   // Set default dates (last 7 days)
+  const now = new Date();
+  const lastWeek = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+  document.getElementById('start-date').value = fmtDateCA(lastWeek);
+  document.getElementById('end-date').value = fmtDateCA(now);
+   document.getElementById('start-hour').value = '00';
+   document.getElementById('end-hour').value = '23';
+  updateRangeNotes();
+
+  // Live update range notes when user edits range inputs
+  ['start-date','end-date','start-hour','end-hour'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', updateRangeNotes);
+  });
+
+   // Element SDK integration
+   async function onConfigChange(newConfig) {
+     config = { ...config, ...newConfig };
+     const titleEl = document.getElementById('dashboard-title');
+     if (titleEl) titleEl.textContent = config.dashboard_title || defaultConfig.dashboard_title;
+     const summaryEl = document.getElementById('summary-title');
+     if (summaryEl) summaryEl.textContent = config.summary_title || defaultConfig.summary_title;
+   }
+
+   function mapToCapabilities(cfg) {
+     return {
+       recolorables: [
+         { get: () => cfg.background_color || defaultConfig.background_color, set: (value) => { cfg.background_color = value; window.elementSdk.setConfig({ background_color: value }); } },
+         { get: () => cfg.surface_color || defaultConfig.surface_color, set: (value) => { cfg.surface_color = value; window.elementSdk.setConfig({ surface_color: value }); } },
+         { get: () => cfg.text_color || defaultConfig.text_color, set: (value) => { cfg.text_color = value; window.elementSdk.setConfig({ text_color: value }); } },
+         { get: () => cfg.primary_color || defaultConfig.primary_color, set: (value) => { cfg.primary_color = value; window.elementSdk.setConfig({ primary_color: value }); } },
+         { get: () => cfg.accent_color || defaultConfig.accent_color, set: (value) => { cfg.accent_color = value; window.elementSdk.setConfig({ accent_color: value }); } }
+       ],
+       borderables: [],
+       fontEditable: undefined,
+       fontSizeable: undefined
+     };
+   }
+   function mapToEditPanelValues(cfg) {
+     return new Map([
+       ['dashboard_title', cfg.dashboard_title || defaultConfig.dashboard_title],
+       ['summary_title', cfg.summary_title || defaultConfig.summary_title]
+     ]);
+   }
+   if (window.elementSdk) {
+     window.elementSdk.init({ defaultConfig, onConfigChange, mapToCapabilities, mapToEditPanelValues });
+   }
+
+   function applyStatusFromPayload(data) {
+     try {
+       const c = (data && data.cache) ? data.cache : {};
+       window.__scanIntervalSeconds = c.scan_interval_seconds || 300;
+       window.__nextAutoScanMs = c.next_auto_scan_ms || null;
+
+       const fmtRange = (minMs, maxMs) => {
+         if (!minMs || !maxMs) return 'no cache yet';
+         const min = fmtDateTimeCAFromMs(minMs);
+         const max = fmtDateTimeCAFromMs(maxMs);
+         return `${min} → ${max}`;
+       };
+       document.getElementById('cache-data-coverage').textContent = fmtRange(c.min_ca_ms, c.max_ca_ms);
+       document.getElementById('cache-last-scan').textContent = c.last_scan_ca_ms ? fmtDateTimeCAFromMs(c.last_scan_ca_ms) : 'unknown';
+     } catch (e) {}
+   }
+
+   function startStatusStream() {
+     if (!window.EventSource) return;
+     try {
+       const es = new EventSource('/api/events');
+       es.addEventListener('status', (evt) => {
+         try {
+           const data = JSON.parse(evt.data);
+           applyStatusFromPayload(data);
+         } catch (e) {}
+       });
+       es.addEventListener('error', () => {
+         // fallback: nothing, user can press Refresh
+       });
+       window.__statusEventSource = es;
+     } catch (e) {}
+   }
+
+   // Init (no auto-polling; status updates come from SSE)
+   refreshCacheCoverage(); // initial fill
+   startStatusStream();
+   startCountdownLoop();
+ </script>
+</body>
+</html>

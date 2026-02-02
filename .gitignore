@@ -8,3 +8,6 @@ __pycache__/
 # Runtime mapping (user-specific)
 cache/user_mapping.json
 
+# Analytics standalone server cache
+analytics_cache/
+
