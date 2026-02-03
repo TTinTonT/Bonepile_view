@@ -12,6 +12,7 @@ This server is intentionally separate from app.py / daily_test_app.py.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -21,11 +22,16 @@ import time
 import csv
 import io
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pytz
 from flask import Flask, Response, jsonify, render_template, request
+
+try:
+    import openpyxl  # type: ignore
+except Exception:  # pragma: no cover
+    openpyxl = None
 
 
 # -----------------------------
@@ -38,6 +44,11 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 ANALYTICS_CACHE_DIR = os.path.join(APP_DIR, "analytics_cache")
 DB_PATH = os.path.join(ANALYTICS_CACHE_DIR, "analytics.db")
 STATE_PATH = os.path.join(ANALYTICS_CACHE_DIR, "raw_state.json")
+
+# Uploaded NV/IGS bonepile workbook (single file; replaced on each upload)
+BONEPILE_UPLOAD_PATH = os.path.join(ANALYTICS_CACHE_DIR, "bonepile_upload.xlsx")
+BONEPILE_ALLOWED_SHEETS = ["VR-TS1", "TS2-SKU002", "TS2-SKU010"]
+BONEPILE_REQUIRED_FIELDS = ["sn", "nv_disposition", "status", "pic", "igs_action", "igs_status"]
 
 CA_TZ = pytz.timezone("America/Los_Angeles")
 TW_TZ = pytz.timezone("Asia/Taipei")
@@ -418,6 +429,29 @@ def init_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_ca_date ON raw_entries (ca_date);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_ca_week ON raw_entries (ca_week);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_ca_month ON raw_entries (ca_month);")
+
+        # NV/IGS workbook parsed rows (per sheet)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bonepile_entries (
+              sheet TEXT NOT NULL,
+              excel_row INTEGER NOT NULL,
+              sn TEXT NOT NULL,
+              nvpn TEXT,
+              status TEXT,
+              pic TEXT,
+              igs_status TEXT,
+              nv_disposition TEXT,
+              igs_action TEXT,
+              nv_dispo_count INTEGER,
+              igs_action_count INTEGER,
+              updated_at_ca_ms INTEGER,
+              PRIMARY KEY (sheet, excel_row)
+            );
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bp_sn ON bonepile_entries (sn);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bp_sheet_sn ON bonepile_entries (sheet, sn);")
         conn.commit()
     finally:
         conn.close()
@@ -470,6 +504,10 @@ class RawState:
     last_scan_ca_ms: Optional[int] = None
     # Record full-day rescan runs by hour -> YYYY-MM-DD (CA) to avoid repeating after restarts.
     full_day_runs: Optional[Dict[str, str]] = None
+    # NV/IGS workbook upload + mapping + parse status
+    bonepile_file: Optional[Dict[str, Any]] = None
+    bonepile_mapping: Optional[Dict[str, Any]] = None  # per-sheet mapping config
+    bonepile_sheet_status: Optional[Dict[str, Any]] = None  # per-sheet parse status/result
 
     @staticmethod
     def load() -> "RawState":
@@ -487,6 +525,11 @@ class RawState:
                 max_path=data.get("max_path"),
                 last_scan_ca_ms=data.get("last_scan_ca_ms"),
                 full_day_runs=data.get("full_day_runs") if isinstance(data.get("full_day_runs"), dict) else None,
+                bonepile_file=data.get("bonepile_file") if isinstance(data.get("bonepile_file"), dict) else None,
+                bonepile_mapping=data.get("bonepile_mapping") if isinstance(data.get("bonepile_mapping"), dict) else None,
+                bonepile_sheet_status=data.get("bonepile_sheet_status")
+                if isinstance(data.get("bonepile_sheet_status"), dict)
+                else None,
             )
         except Exception:
             return RawState()
@@ -502,6 +545,9 @@ class RawState:
             "max_path": self.max_path,
             "last_scan_ca_ms": self.last_scan_ca_ms,
             "full_day_runs": self.full_day_runs or None,
+            "bonepile_file": self.bonepile_file or None,
+            "bonepile_mapping": self.bonepile_mapping or None,
+            "bonepile_sheet_status": self.bonepile_sheet_status or None,
         }
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -1345,6 +1391,224 @@ def run_scan_job(job_id: str, start_ca: datetime, end_ca: datetime) -> None:
         set_job(job_id, status="error", error=str(e), finished_at=int(time.time()))
 
 
+def _bonepile_status_payload(state: RawState) -> Dict[str, Any]:
+    bf = state.bonepile_file or {}
+    return {
+        "file": bf,
+        "allowed_sheets": BONEPILE_ALLOWED_SHEETS,
+        "mapping": state.bonepile_mapping or {},
+        "sheets": state.bonepile_sheet_status or {},
+    }
+
+
+def _save_uploaded_bonepile_file(file_storage) -> Dict[str, Any]:
+    ensure_dirs()
+    # Replace existing file atomically
+    tmp_path = BONEPILE_UPLOAD_PATH + ".tmp"
+    file_storage.save(tmp_path)
+    if os.path.exists(BONEPILE_UPLOAD_PATH):
+        try:
+            os.remove(BONEPILE_UPLOAD_PATH)
+        except Exception:
+            pass
+    os.replace(tmp_path, BONEPILE_UPLOAD_PATH)
+    stat = os.stat(BONEPILE_UPLOAD_PATH)
+    now = datetime.now(CA_TZ).replace(microsecond=0)
+    return {
+        "has_file": True,
+        "path": BONEPILE_UPLOAD_PATH,
+        "original_name": getattr(file_storage, "filename", None),
+        "size_bytes": int(getattr(stat, "st_size", 0)),
+        "uploaded_at_ca_ms": utc_ms(now),
+    }
+
+
+def run_bonepile_parse_job(job_id: str, sheets: Optional[List[str]] = None) -> None:
+    """
+    Parse the uploaded NV/IGS workbook for allowed sheets.
+    - Per-sheet: auto-detect header by 'SN' and map columns by header names unless user saved mapping.
+    - Writes rows into SQLite bonepile_entries (replaces per-sheet).
+    - Updates RawState.bonepile_sheet_status with ok/error for each sheet.
+    """
+    try:
+        set_job(job_id, status="running", message="Parsing workbook...", started_at=int(time.time()))
+        ensure_db_ready()
+        with scan_lock:
+            state = RawState.load()
+        if not os.path.exists(BONEPILE_UPLOAD_PATH):
+            raise RuntimeError("No uploaded bonepile workbook found")
+        wb = _load_bonepile_workbook(BONEPILE_UPLOAD_PATH)
+        try:
+            all_sheets = list(wb.sheetnames)
+            allowed = [s for s in BONEPILE_ALLOWED_SHEETS if s in all_sheets]
+            target = allowed if not sheets else [s for s in sheets if s in allowed]
+
+            mapping_cfg = (state.bonepile_mapping or {})
+            sheet_status: Dict[str, Any] = state.bonepile_sheet_status or {}
+
+            conn = connect_db()
+            try:
+                for sheet in target:
+                    ws = wb[sheet]
+                    
+                    # Compute hash of current sheet content
+                    current_hash = _hash_sheet_content(ws)
+                    prev_status = sheet_status.get(sheet) if isinstance(sheet_status.get(sheet), dict) else {}
+                    prev_hash = prev_status.get("content_hash") if isinstance(prev_status.get("content_hash"), str) else None
+                    
+                    # Skip parsing if hash matches (content unchanged)
+                    if prev_hash and prev_hash == current_hash:
+                        # Keep previous status but update last_run timestamp
+                        prev_status["last_run_ca_ms"] = utc_ms(datetime.now(CA_TZ))
+                        prev_status["skipped"] = True
+                        prev_status["skip_reason"] = "Content unchanged (hash match)"
+                        sheet_status[sheet] = prev_status
+                        continue
+                    
+                    # Determine header row + mapping
+                    cfg = (mapping_cfg.get(sheet) or {}) if isinstance(mapping_cfg.get(sheet), dict) else {}
+                    header_row = int(cfg.get("header_row") or 0) if cfg.get("header_row") else 0
+                    if header_row <= 0:
+                        header_row = _find_header_row(ws) or 0
+                    if header_row <= 0:
+                        sheet_status[sheet] = {
+                            "status": "error",
+                            "error": "Header row not found (SN)",
+                            "last_run_ca_ms": utc_ms(datetime.now(CA_TZ)),
+                            "content_hash": current_hash,
+                        }
+                        continue
+
+                    header_map = _read_header_map(ws, header_row=header_row)
+
+                    # User mapping by header name (preferred) or auto mapping
+                    col_map: Dict[str, int] = {}
+                    user_cols = cfg.get("columns") if isinstance(cfg.get("columns"), dict) else None
+                    if user_cols:
+                        for k, v in user_cols.items():
+                            if not v:
+                                continue
+                            # v can be a header string
+                            if isinstance(v, str):
+                                col_map[k] = int(header_map.get(v.strip().upper(), 0))
+                            else:
+                                try:
+                                    col_map[k] = int(v)
+                                except Exception:
+                                    col_map[k] = 0
+                        # fill missing with auto mapping
+                        auto = _auto_mapping_from_headers(header_map)
+                        for k, idx in auto.items():
+                            col_map.setdefault(k, idx)
+                    else:
+                        col_map = _auto_mapping_from_headers(header_map)
+
+                    errs = _mapping_errors(col_map, header_map)
+                    if errs:
+                        sheet_status[sheet] = {
+                            "status": "error",
+                            "error": "; ".join(errs[:3]),
+                            "header_row": header_row,
+                            "last_run_ca_ms": utc_ms(datetime.now(CA_TZ)),
+                            "content_hash": current_hash,
+                        }
+                        continue
+
+                    # Replace rows for this sheet
+                    conn.execute("DELETE FROM bonepile_entries WHERE sheet = ?;", (sheet,))
+                    now_ms = utc_ms(datetime.now(CA_TZ).replace(microsecond=0))
+                    inserted = 0
+                    empty_sn_streak = 0
+
+                    for excel_row_idx, row in enumerate(
+                        ws.iter_rows(min_row=header_row + 1, values_only=True),
+                        start=header_row + 1,
+                    ):
+                        # Stop if we hit a long blank region
+                        if row is None:
+                            continue
+                        sn_val = row[col_map["sn"] - 1] if col_map["sn"] > 0 and col_map["sn"] <= len(row) else None
+                        sn = _normalize_sn(sn_val)
+                        if not sn:
+                            empty_sn_streak += 1
+                            if empty_sn_streak >= 200:
+                                break
+                            continue
+                        empty_sn_streak = 0
+
+                        def cell(idx: int) -> str:
+                            if idx <= 0 or idx > len(row):
+                                return ""
+                            v = row[idx - 1]
+                            return "" if v is None else str(v).strip()
+
+                        nv_dispo = cell(col_map.get("nv_disposition", 0))
+                        igs_action = cell(col_map.get("igs_action", 0))
+                        status = cell(col_map.get("status", 0))
+                        pic = cell(col_map.get("pic", 0))
+                        igs_status = cell(col_map.get("igs_status", 0))
+                        nvpn = cell(col_map.get("nvpn", 0))
+
+                        nv_cnt = len(_extract_mmdd_entries(nv_dispo))
+                        igs_cnt = len(_extract_mmdd_entries(igs_action))
+
+                        conn.execute(
+                            """
+                            INSERT OR REPLACE INTO bonepile_entries (
+                              sheet, excel_row, sn, nvpn, status, pic, igs_status,
+                              nv_disposition, igs_action, nv_dispo_count, igs_action_count, updated_at_ca_ms
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                            """,
+                            (
+                                sheet,
+                                int(excel_row_idx),
+                                sn,
+                                nvpn,
+                                status,
+                                pic,
+                                igs_status,
+                                nv_dispo,
+                                igs_action,
+                                int(nv_cnt),
+                                int(igs_cnt),
+                                int(now_ms),
+                            ),
+                        )
+                        inserted += 1
+
+                    conn.commit()
+                    sheet_status[sheet] = {
+                        "status": "ok",
+                        "rows": int(inserted),
+                        "header_row": int(header_row),
+                        "last_run_ca_ms": int(now_ms),
+                        "content_hash": current_hash,
+                    }
+
+                # Save state
+                with scan_lock:
+                    st = RawState.load()
+                    st.bonepile_sheet_status = sheet_status
+                    st.save()
+            finally:
+                conn.close()
+        finally:
+            try:
+                wb.close()
+            except Exception:
+                pass
+
+        set_job(job_id, status="done", message="Workbook parsed", finished_at=int(time.time()))
+    except Exception as e:
+        set_job(job_id, status="error", error=str(e), finished_at=int(time.time()))
+        with scan_lock:
+            st = RawState.load()
+            ss = st.bonepile_sheet_status or {}
+            ss["_job_error"] = str(e)
+            st.bonepile_sheet_status = ss
+            st.save()
+
+
 # -----------------------------
 # Routes
 # -----------------------------
@@ -1383,6 +1647,8 @@ def api_status():
                 "next_auto_scan_ms": next_ms,
                 "last_retention_cleanup_ms": last_cleanup_ms,
             }
+            ,
+            "bonepile": _bonepile_status_payload(state),
         }
     )
 
@@ -1418,6 +1684,8 @@ def api_events():
                 "next_auto_scan_ms": next_ms,
                 "last_retention_cleanup_ms": last_cleanup_ms,
             }
+            ,
+            "bonepile": _bonepile_status_payload(state),
         }
 
     def gen():
@@ -1479,6 +1747,216 @@ def api_job(job_id: str):
     if not data:
         return jsonify({"error": "job not found"}), 404
     return jsonify(data)
+
+
+@app.route("/api/bonepile/status")
+def api_bonepile_status():
+    ensure_db_ready()
+    state = RawState.load()
+    return jsonify(_bonepile_status_payload(state))
+
+
+@app.route("/api/bonepile/upload", methods=["POST"])
+def api_bonepile_upload():
+    """
+    Upload NV/IGS workbook. The backend stores only the latest file (replaces previous).
+    After upload, automatically parse all allowed sheets with auto-detect.
+    Sheets with unchanged content (hash match) will be skipped.
+    """
+    ensure_db_ready()
+    if openpyxl is None:
+        return jsonify({"error": "openpyxl not installed; cannot accept XLSX"}), 500
+    if "file" not in request.files:
+        return jsonify({"error": "file is required"}), 400
+    f = request.files["file"]
+    if not f or not getattr(f, "filename", ""):
+        return jsonify({"error": "no file selected"}), 400
+    name = str(f.filename)
+    if not name.lower().endswith(".xlsx"):
+        return jsonify({"error": "only .xlsx is supported for bonepile upload"}), 400
+
+    with scan_lock:
+        state = RawState.load()
+        meta = _save_uploaded_bonepile_file(f)
+        state.bonepile_file = meta
+        # Keep existing sheet status (for hash comparison)
+        state.bonepile_sheet_status = state.bonepile_sheet_status or {}
+        state.save()
+
+    # Auto-parse all allowed sheets (with auto-detect, hash check will skip unchanged sheets)
+    job_id = new_job_id()
+    set_job(job_id, status="queued", message="Auto-parsing all sheets with auto-detect...")
+    t = threading.Thread(target=run_bonepile_parse_job, args=(job_id, None), daemon=True)
+    t.start()
+    return jsonify({"ok": True, "job_id": job_id, "bonepile_file": meta})
+
+
+@app.route("/api/bonepile/sheets")
+def api_bonepile_sheets():
+    """
+    Return sheet list, ignore list, and auto-detected header/mapping suggestion for allowed sheets.
+    """
+    if openpyxl is None:
+        return jsonify({"error": "openpyxl not installed; cannot read XLSX"}), 500
+    state = RawState.load()
+    if not os.path.exists(BONEPILE_UPLOAD_PATH):
+        return jsonify({"ok": True, "has_file": False, "allowed": BONEPILE_ALLOWED_SHEETS, "ignored": [], "sheets": {}})
+    wb = _load_bonepile_workbook(BONEPILE_UPLOAD_PATH)
+    try:
+        all_sheets = list(wb.sheetnames)
+        ignored = [s for s in all_sheets if s not in BONEPILE_ALLOWED_SHEETS]
+        out: Dict[str, Any] = {}
+        for sheet in BONEPILE_ALLOWED_SHEETS:
+            if sheet not in all_sheets:
+                out[sheet] = {"present": False}
+                continue
+            ws = wb[sheet]
+            header_row = _find_header_row(ws) or 0
+            header_map = _read_header_map(ws, header_row) if header_row else {}
+            auto_map = _auto_mapping_from_headers(header_map) if header_map else {}
+            errs = _mapping_errors(auto_map, header_map) if header_map else ["Header row not found (SN)"]
+            out[sheet] = {
+                "present": True,
+                "header_row": int(header_row) if header_row else None,
+                "headers": list(header_map.keys())[:80],
+                "auto_columns": auto_map,
+                "auto_errors": errs,
+                "saved_mapping": (state.bonepile_mapping or {}).get(sheet),
+                "status": (state.bonepile_sheet_status or {}).get(sheet),
+            }
+        return jsonify({"ok": True, "has_file": True, "allowed": BONEPILE_ALLOWED_SHEETS, "ignored": ignored, "sheets": out})
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
+
+
+@app.route("/api/bonepile/mapping", methods=["POST"])
+def api_bonepile_mapping():
+    """
+    Save mapping for a single sheet:
+      { sheet, header_row, columns: {sn, nv_disposition, status, pic, igs_action, igs_status, nvpn?} }
+    Values in columns can be header strings (preferred) or 1-based column indices.
+    """
+    payload = request.json or {}
+    sheet = str(payload.get("sheet") or "").strip()
+    if sheet not in BONEPILE_ALLOWED_SHEETS:
+        return jsonify({"error": "invalid sheet"}), 400
+    header_row = int(payload.get("header_row") or 0)
+    columns = payload.get("columns") if isinstance(payload.get("columns"), dict) else {}
+    if header_row <= 0:
+        return jsonify({"error": "header_row must be >= 1"}), 400
+
+    with scan_lock:
+        state = RawState.load()
+        if state.bonepile_mapping is None:
+            state.bonepile_mapping = {}
+        state.bonepile_mapping[sheet] = {"header_row": int(header_row), "columns": columns}
+        state.save()
+
+    # Trigger re-parse just this sheet in background
+    job_id = new_job_id()
+    set_job(job_id, status="queued", message=f"Parsing {sheet}...")
+    t = threading.Thread(target=run_bonepile_parse_job, args=(job_id, [sheet]), daemon=True)
+    t.start()
+    return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.route("/api/bonepile/parse", methods=["POST"])
+def api_bonepile_parse():
+    """
+    Trigger parse job (all sheets or a single sheet).
+      { sheet?: "VR-TS1" }
+    """
+    ensure_db_ready()
+    payload = request.json or {}
+    sheet = str(payload.get("sheet") or "").strip() if payload.get("sheet") is not None else ""
+    sheets: Optional[List[str]] = None
+    if sheet:
+        if sheet not in BONEPILE_ALLOWED_SHEETS:
+            return jsonify({"error": "invalid sheet"}), 400
+        sheets = [sheet]
+    job_id = new_job_id()
+    set_job(job_id, status="queued", message="Bonepile parse queued")
+    t = threading.Thread(target=run_bonepile_parse_job, args=(job_id, sheets), daemon=True)
+    t.start()
+    return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.route("/api/bonepile/disposition")
+def api_bonepile_disposition():
+    """
+    NV Disposition stats from bonepile_entries.
+    Query: aggregation=daily|weekly|monthly (default daily), start_datetime, end_datetime (optional).
+    Returns: summary { total, waiting_igs, complete }, by_sku, by_period.
+    """
+    ensure_db_ready()
+    aggregation = request.args.get("aggregation", "daily").strip().lower()
+    if aggregation not in ("daily", "weekly", "monthly"):
+        aggregation = "daily"
+    start_dt = request.args.get("start_datetime")
+    end_dt = request.args.get("end_datetime")
+    start_ca_ms = None
+    end_ca_ms = None
+    if start_dt:
+        start_ca = _parse_ca_input_datetime(start_dt, is_end=False)
+        if start_ca:
+            start_ca_ms = utc_ms(start_ca)
+    if end_dt:
+        end_ca = _parse_ca_input_datetime(end_dt, is_end=True)
+        if end_ca:
+            end_ca_ms = utc_ms(end_ca)
+    try:
+        data = compute_disposition_stats(aggregation=aggregation, start_ca_ms=start_ca_ms, end_ca_ms=end_ca_ms)
+        return jsonify({"ok": True, **data})
+    except sqlite3.OperationalError:
+        return jsonify({
+            "ok": True,
+            "summary": {"total": 0, "waiting_igs": 0, "complete": 0},
+            "by_sku": [],
+            "by_period": [],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/bonepile/disposition/sn-list", methods=["POST"])
+def api_bonepile_disposition_sn_list():
+    """
+    SN list for disposition drill-down.
+    Body: { metric: total|waiting|complete, sku?: string, period?: string, aggregation?: daily|weekly|monthly, start_datetime?, end_datetime? }.
+    Returns: rows with sn, last_nv_dispo, last_igs_action, nvpn, status, pic.
+    """
+    ensure_db_ready()
+    payload = request.json or {}
+    metric = str(payload.get("metric") or "total").strip().lower()
+    if metric not in ("total", "waiting", "complete", "trays_bp", "all_pass_trays"):
+        metric = "total"
+    sku = (payload.get("sku") or "").strip() or None
+    period = (payload.get("period") or "").strip() or None
+    aggregation = str(payload.get("aggregation") or "daily").strip().lower()
+    if aggregation not in ("daily", "weekly", "monthly"):
+        aggregation = "daily"
+    start_dt = payload.get("start_datetime")
+    end_dt = payload.get("end_datetime")
+    start_ca_ms = None
+    end_ca_ms = None
+    if start_dt:
+        start_ca = _parse_ca_input_datetime(start_dt, is_end=False)
+        if start_ca:
+            start_ca_ms = utc_ms(start_ca)
+    if end_dt:
+        end_ca = _parse_ca_input_datetime(end_dt, is_end=True)
+        if end_ca:
+            end_ca_ms = utc_ms(end_ca)
+    try:
+        rows = compute_disposition_sn_list(metric=metric, sku=sku, period=period, aggregation=aggregation, start_ca_ms=start_ca_ms, end_ca_ms=end_ca_ms)
+        return jsonify({"ok": True, "count": len(rows), "rows": rows})
+    except sqlite3.OperationalError:
+        return jsonify({"ok": True, "count": 0, "rows": []})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/scan", methods=["POST"])
@@ -1600,6 +2078,531 @@ def _fmt_ca_ms(ms: Optional[int]) -> str:
         return ""
 
 
+def _normalize_sn(v: Any) -> Optional[str]:
+    """
+    Normalize SN:
+    - Must start with '18' and be 13 digits.
+    - Excel may store it as float/scientific; coerce safely.
+    """
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s:
+        return None
+    # Handle scientific notation or floats like 1.830125000128E+12
+    try:
+        if re.fullmatch(r"\d+(\.\d+)?E\+\d+", s, flags=re.IGNORECASE):
+            s = str(int(float(s)))
+    except Exception:
+        pass
+    # Strip trailing .0
+    if re.fullmatch(r"\d+\.0", s):
+        s = s[:-2]
+    s = re.sub(r"[^\d]", "", s)
+    if len(s) == 13 and s.startswith("18"):
+        return s
+    return None
+
+
+def _extract_mmdd_entries(text: Any) -> List[str]:
+    """
+    Extract "entries" from a cell that may contain multiple mm/dd markers.
+    Returns list of raw segments (strings) starting at each mm/dd marker.
+    """
+    if text is None:
+        return []
+    raw = str(text)
+    if not raw.strip():
+        return []
+    # Find all mm/dd occurrences
+    matches = list(re.finditer(r"\b\d{1,2}/\d{1,2}\b", raw))
+    if not matches:
+        return []
+    out: List[str] = []
+    for i, m in enumerate(matches):
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(raw)
+        seg = raw[start:end].strip()
+        if seg:
+            out.append(seg)
+    return out
+
+
+def _load_bonepile_workbook(path: str):
+    if openpyxl is None:
+        raise RuntimeError("openpyxl is not installed; cannot read XLSX")
+    return openpyxl.load_workbook(path, read_only=True, data_only=True)
+
+
+def _hash_sheet_content(ws, max_rows: int = 10000) -> str:
+    """
+    Compute SHA256 hash of sheet content (first max_rows rows, all columns).
+    Used to detect if sheet content changed since last parse.
+    """
+    h = hashlib.sha256()
+    row_count = 0
+    for row in ws.iter_rows(max_row=max_rows, values_only=True):
+        if row_count >= max_rows:
+            break
+        # Convert row to string representation (normalize None to empty)
+        row_str = "|".join(str(v if v is not None else "") for v in row)
+        h.update(row_str.encode("utf-8"))
+        h.update(b"\n")
+        row_count += 1
+    # Include row count in hash
+    h.update(str(row_count).encode("utf-8"))
+    return h.hexdigest()
+
+
+def _find_header_row(ws, max_rows: int = 300) -> Optional[int]:
+    """
+    Return 1-based row index of header row containing 'SN' cell.
+    """
+    for i, row in enumerate(ws.iter_rows(min_row=1, max_row=max_rows, values_only=True), start=1):
+        if not row:
+            continue
+        for v in row:
+            if v is None:
+                continue
+            if str(v).strip().upper() == "SN":
+                return i
+    return None
+
+
+def _read_header_map(ws, header_row: int, max_cols: int = 80) -> Dict[str, int]:
+    """
+    Build case-insensitive header -> 1-based column index map.
+    """
+    header_map: Dict[str, int] = {}
+    for j, cell in enumerate(next(ws.iter_rows(min_row=header_row, max_row=header_row, values_only=True)), start=1):
+        if j > max_cols:
+            break
+        if cell is None:
+            continue
+        name = str(cell).strip()
+        if not name:
+            continue
+        header_map[name.strip().upper()] = j
+    return header_map
+
+
+def _auto_mapping_from_headers(header_map: Dict[str, int]) -> Dict[str, int]:
+    """
+    Auto-map required fields by header names.
+    """
+    def pick(*names: str) -> Optional[int]:
+        for n in names:
+            idx = header_map.get(n.upper())
+            if idx:
+                return idx
+        return None
+
+    m: Dict[str, int] = {}
+    m["sn"] = pick("SN") or 0
+    m["nv_disposition"] = pick("NV DISPOSITION", "NV DISPO", "NV DISPOSITION ") or 0
+    m["status"] = pick("STATUS") or 0
+    m["pic"] = pick("PIC") or 0
+    m["igs_action"] = pick("IGS ACTION") or 0
+    m["igs_status"] = pick("IGS STATUS") or 0
+    # Optional part number/SKU column (varies by file)
+    m["nvpn"] = pick("NVPN", "PART NUMBER", "PART NUMBERS", "SKU") or 0
+    return m
+
+
+def _mapping_errors(mapping: Dict[str, int], header_map: Dict[str, int]) -> List[str]:
+    errors: List[str] = []
+    for k in BONEPILE_REQUIRED_FIELDS:
+        if int(mapping.get(k) or 0) <= 0:
+            errors.append(f"Missing column for '{k}'")
+    if errors:
+        # Provide context: first few headers
+        sample = ", ".join(list(header_map.keys())[:25])
+        errors.append(f"Available headers: {sample}")
+    return errors
+
+
+def _last_mmdd_entry(text: Any) -> str:
+    """Return the last mm/dd entry segment from cell text, or full text if no mm/dd."""
+    entries = _extract_mmdd_entries(text)
+    if entries:
+        return entries[-1].strip()
+    return (str(text) if text is not None else "").strip()
+
+
+def _is_pass_status(status_norm: str) -> bool:
+    """
+    Check if normalized status string indicates a pass status.
+    Returns True if status contains: "PASS", "ALL PASS", "PASS ALL", or "PASSED" (case-insensitive).
+    """
+    if not status_norm:
+        return False
+    # Check for various pass patterns
+    return (
+        "PASS" in status_norm or
+        "ALL PASS" in status_norm or
+        "PASS ALL" in status_norm or
+        "PASSED" in status_norm
+    )
+
+
+def _last_mmdd_only(text: Any) -> Optional[Tuple[int, int]]:
+    """Return (month, day) from the last mm/dd in cell text, or None."""
+    raw = (str(text) if text is not None else "").strip()
+    if not raw:
+        return None
+    matches = list(re.finditer(r"\b(\d{1,2})/(\d{1,2})\b", raw))
+    if not matches:
+        return None
+    m = matches[-1]
+    try:
+        month = int(m.group(1))
+        day = int(m.group(2))
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return (month, day)
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
+def _disposition_period_from_row(
+    row: Dict[str, Any], aggregation: str, fallback_ca_ms: Optional[int] = None
+) -> str:
+    """
+    Return period key from row: use last mm/dd in nv_disposition or igs_action (year from updated_at).
+    Fallback to _disposition_period_from_ca_ms(updated_at) if no mm/dd.
+    """
+    ca_ms = row.get("updated_at_ca_ms") or fallback_ca_ms
+    year = None
+    if ca_ms is not None:
+        try:
+            dt = datetime.fromtimestamp(ca_ms / 1000.0, tz=CA_TZ)
+            year = dt.year
+        except Exception:
+            pass
+    mmdd_nv = _last_mmdd_only(row.get("nv_disposition"))
+    mmdd_igs = _last_mmdd_only(row.get("igs_action"))
+    mmdd = mmdd_igs or mmdd_nv
+    if mmdd is not None and year is not None:
+        try:
+            d = date(year, mmdd[0], mmdd[1])
+            if aggregation == "monthly":
+                return d.strftime("%Y-%m")
+            if aggregation == "weekly":
+                days_since_sunday = (d.weekday() + 1) % 7
+                week_start = d - timedelta(days=days_since_sunday)
+                week_end = week_start + timedelta(days=6)
+                return f"{week_start.strftime('%Y-%m-%d')}~{week_end.strftime('%Y-%m-%d')}"
+            return d.strftime("%Y-%m-%d")
+        except (ValueError, TypeError):
+            pass
+    return _disposition_period_from_ca_ms(ca_ms, aggregation)
+
+
+def _disposition_period_from_ca_ms(ca_ms: Optional[int], aggregation: str) -> str:
+    """Return period key (ca_date, ca_week, or ca_month) from updated_at_ca_ms."""
+    if ca_ms is None:
+        return ""
+    try:
+        dt = datetime.fromtimestamp(ca_ms / 1000.0, tz=CA_TZ)
+    except Exception:
+        return ""
+    if aggregation == "weekly":
+        days_since_sunday = (dt.weekday() + 1) % 7
+        week_start = (dt - timedelta(days=days_since_sunday)).date()
+        week_end = week_start + timedelta(days=6)
+        return f"{week_start.strftime('%Y-%m-%d')}~{week_end.strftime('%Y-%m-%d')}"
+    if aggregation == "monthly":
+        return dt.strftime("%Y-%m")
+    return dt.strftime("%Y-%m-%d")
+
+
+def compute_disposition_stats(aggregation: str = "daily", start_ca_ms: Optional[int] = None, end_ca_ms: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Compute NV Disposition stats from bonepile_entries.
+    - Total dispositions = sum of nv_dispo_count (each mm/dd = 1 dispo).
+    - Waiting for IGS Action = count of rows where status=Fail, PIC=IGS (last dispo waiting).
+    - Complete = total - waiting (in row terms: complete = total_dispo_count - waiting_row_count).
+    Returns: summary { total, waiting_igs, complete }, by_sku [ { sku, total, waiting_igs, complete } ], by_period [ { period, total, waiting_igs, complete } ].
+    """
+    conn = connect_db()
+    try:
+        query = "SELECT sn, nvpn, status, pic, nv_disposition, igs_action, nv_dispo_count, updated_at_ca_ms FROM bonepile_entries"
+        params = []
+        conditions = []
+        if start_ca_ms is not None:
+            conditions.append("updated_at_ca_ms >= ?")
+            params.append(start_ca_ms)
+        if end_ca_ms is not None:
+            conditions.append("updated_at_ca_ms <= ?")
+            params.append(end_ca_ms)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += ";"
+        rows = conn.execute(query, params).fetchall()
+    finally:
+        conn.close()
+
+    def _norm(s: Any) -> str:
+        return (str(s) if s is not None else "").strip().upper()
+
+    total_dispo = 0
+    waiting_count = 0
+    by_sku: Dict[str, Dict[str, Any]] = {}
+    by_period: Dict[str, Dict[str, Any]] = {}
+
+    def _row_dict(r) -> Dict[str, Any]:
+        return {k: r[k] for k in r.keys()} if hasattr(r, "keys") else dict(r)
+
+    # Filter rows to only include those whose disposition date (mm/dd) falls within the date range
+    # This ensures Summary and breakdown by period are consistent (both based on disposition date, not just updated_at)
+    filtered_rows_for_summary = []
+    if start_ca_ms is not None and end_ca_ms is not None:
+        try:
+            start_d = datetime.fromtimestamp(start_ca_ms / 1000.0, tz=CA_TZ).date()
+            end_d = datetime.fromtimestamp(end_ca_ms / 1000.0, tz=CA_TZ).date()
+            for r in rows:
+                rd = _row_dict(r)
+                period = _disposition_period_from_row(rd, aggregation)
+                if not period:
+                    continue
+                # Check if period falls within range
+                if aggregation == "daily" and re.match(r"^\d{4}-\d{2}-\d{2}$", period):
+                    pd = datetime.strptime(period, "%Y-%m-%d").date()
+                    if start_d <= pd <= end_d:
+                        filtered_rows_for_summary.append(r)
+                elif aggregation == "monthly" and re.match(r"^\d{4}-\d{2}$", period):
+                    pd = datetime.strptime(period + "-01", "%Y-%m-%d").date()
+                    if start_d <= pd <= end_d:
+                        filtered_rows_for_summary.append(r)
+                elif aggregation == "weekly" and "~" in period:
+                    part = period.split("~")[0]
+                    if re.match(r"^\d{4}-\d{2}-\d{2}$", part):
+                        pd = datetime.strptime(part, "%Y-%m-%d").date()
+                        if pd <= end_d and (pd + timedelta(days=6)) >= start_d:
+                            filtered_rows_for_summary.append(r)
+                else:
+                    # Fallback: include if period matches any format
+                    filtered_rows_for_summary.append(r)
+        except Exception:
+            # If filtering fails, use all rows (fallback)
+            filtered_rows_for_summary = rows
+    else:
+        # No date range filter, use all rows
+        filtered_rows_for_summary = rows
+
+    for r in filtered_rows_for_summary:
+        rd = _row_dict(r)
+        nv_count = int(r["nv_dispo_count"] or 0)
+        total_dispo += nv_count
+        status_ok = _norm(r["status"]) == "FAIL"
+        pic_ok = _norm(r["pic"]) == "IGS"
+        is_waiting = status_ok and pic_ok
+        if is_waiting:
+            waiting_count += 1
+
+        sku = (r["nvpn"] or "").strip() or "Unknown"
+        by_sku.setdefault(sku, {"sku": sku, "total": 0, "waiting_igs": 0, "complete": 0})
+        by_sku[sku]["total"] += nv_count
+        if is_waiting:
+            by_sku[sku]["waiting_igs"] = by_sku[sku].get("waiting_igs", 0) + 1
+
+        period = _disposition_period_from_row(rd, aggregation)
+        if period:
+            by_period.setdefault(period, {"period": period, "total": 0, "waiting_igs": 0, "complete": 0})
+            by_period[period]["total"] += nv_count
+            if is_waiting:
+                by_period[period]["waiting_igs"] = by_period[period].get("waiting_igs", 0) + 1
+
+    for sku, d in by_sku.items():
+        d["complete"] = d["total"] - d.get("waiting_igs", 0)
+    for period, d in by_period.items():
+        d["complete"] = d["total"] - d.get("waiting_igs", 0)
+
+    complete_total = total_dispo - waiting_count
+    summary = {"total": total_dispo, "waiting_igs": waiting_count, "complete": complete_total}
+
+    # Count unique trays (SNs) in BP and trays with ALL PASS status
+    # IMPORTANT: Count from ALL rows in bonepile_entries (not filtered by date range)
+    # This gives total trays in the excel file, not just in the filter range
+    conn_all = connect_db()
+    try:
+        all_rows = conn_all.execute(
+            "SELECT sn, nvpn, status, updated_at_ca_ms FROM bonepile_entries;"
+        ).fetchall()
+    finally:
+        conn_all.close()
+    
+    # For each SN, keep the latest row (by updated_at_ca_ms) to determine status
+    sn_latest_row: Dict[str, Dict[str, Any]] = {}
+    for r in all_rows:
+        sn = (r["sn"] or "").strip()
+        if not sn:
+            continue
+        ca_ms = r["updated_at_ca_ms"] or 0
+        existing = sn_latest_row.get(sn)
+        if existing is None or ca_ms > (existing.get("updated_at_ca_ms") or 0):
+            sn_latest_row[sn] = {
+                "sn": sn,
+                "nvpn": (r["nvpn"] or "").strip() or "Unknown",
+                "status": (r["status"] or "").strip(),
+                "updated_at_ca_ms": ca_ms,
+            }
+    
+    unique_trays_bp = len(sn_latest_row)
+    all_pass_trays = 0
+    tray_by_sku: Dict[str, Dict[str, int]] = {}  # {sku: {total_trays: X, all_pass_trays: Y}}
+    
+    for sn, d in sn_latest_row.items():
+        status_norm = _norm(d["status"])
+        if _is_pass_status(status_norm):
+            all_pass_trays += 1
+        
+        sku = d["nvpn"]
+        tray_by_sku.setdefault(sku, {"sku": sku, "total_trays": 0, "all_pass_trays": 0})
+        tray_by_sku[sku]["total_trays"] += 1
+        if _is_pass_status(status_norm):
+            tray_by_sku[sku]["all_pass_trays"] += 1
+    
+    summary["unique_trays_bp"] = unique_trays_bp
+    summary["all_pass_trays"] = all_pass_trays
+    tray_by_sku_list = sorted(tray_by_sku.values(), key=lambda x: (x["sku"]))
+
+    by_sku_list = sorted(by_sku.values(), key=lambda x: (x["sku"]))
+    by_period_list = sorted(by_period.values(), key=lambda x: (x["period"]))
+
+    # Filter by_period to only include periods within user's date range
+    if start_ca_ms is not None and end_ca_ms is not None:
+        try:
+            start_d = datetime.fromtimestamp(start_ca_ms / 1000.0, tz=CA_TZ).date()
+            end_d = datetime.fromtimestamp(end_ca_ms / 1000.0, tz=CA_TZ).date()
+            filtered = []
+            for p in by_period_list:
+                period_str = p.get("period") or ""
+                if aggregation == "daily" and re.match(r"^\d{4}-\d{2}-\d{2}$", period_str):
+                    pd = datetime.strptime(period_str, "%Y-%m-%d").date()
+                    if start_d <= pd <= end_d:
+                        filtered.append(p)
+                elif aggregation == "monthly" and re.match(r"^\d{4}-\d{2}$", period_str):
+                    pd = datetime.strptime(period_str + "-01", "%Y-%m-%d").date()
+                    if start_d <= pd <= end_d:
+                        filtered.append(p)
+                elif aggregation == "weekly" and "~" in period_str:
+                    part = period_str.split("~")[0]
+                    if re.match(r"^\d{4}-\d{2}-\d{2}$", part):
+                        pd = datetime.strptime(part, "%Y-%m-%d").date()
+                        if pd <= end_d and (pd + timedelta(days=6)) >= start_d:
+                            filtered.append(p)
+                else:
+                    filtered.append(p)
+            by_period_list = filtered
+        except Exception:
+            pass
+
+    return {"summary": summary, "by_sku": by_sku_list, "by_period": by_period_list, "tray_by_sku": tray_by_sku_list}
+
+
+def compute_disposition_sn_list(
+    metric: str, sku: Optional[str] = None, period: Optional[str] = None, aggregation: str = "daily", start_ca_ms: Optional[int] = None, end_ca_ms: Optional[int] = None
+) -> List[Dict[str, Any]]:
+    """
+    Return list of { sn, last_nv_dispo, last_igs_action, nvpn, status, pic } for drill-down.
+    metric: total | waiting | complete
+    """
+    conn = connect_db()
+    try:
+        query = "SELECT sheet, excel_row, sn, nvpn, status, pic, nv_disposition, igs_action, updated_at_ca_ms FROM bonepile_entries"
+        params = []
+        conditions = []
+        if start_ca_ms is not None:
+            conditions.append("updated_at_ca_ms >= ?")
+            params.append(start_ca_ms)
+        if end_ca_ms is not None:
+            conditions.append("updated_at_ca_ms <= ?")
+            params.append(end_ca_ms)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += ";"
+        rows = conn.execute(query, params).fetchall()
+    finally:
+        conn.close()
+
+    def _norm(s: Any) -> str:
+        return (str(s) if s is not None else "").strip().upper()
+
+    def _row_dict(r) -> Dict[str, Any]:
+        return {k: r[k] for k in r.keys()} if hasattr(r, "keys") else dict(r)
+
+    # Special handling for trays_bp and all_pass_trays: get ALL rows (not filtered by date range)
+    if metric in ("trays_bp", "all_pass_trays"):
+        conn_all = connect_db()
+        try:
+            rows = conn_all.execute(
+                "SELECT sheet, excel_row, sn, nvpn, status, pic, nv_disposition, igs_action, updated_at_ca_ms FROM bonepile_entries;"
+            ).fetchall()
+        finally:
+            conn_all.close()
+
+    # Filter by metric first: show SNs that have at least one row matching the metric (waiting/complete/total/trays_bp/all_pass_trays)
+    # So when user clicks "Waiting IGS 5" we show all SNs that have any row with status=FAIL, pic=IGS (and sku/period if set)
+    sku_norm = (sku or "").strip() or None
+    filtered_rows = []
+    for r in rows:
+        row_sku = (r["nvpn"] or "").strip() or "Unknown"
+        if sku_norm and sku_norm != "__TOTAL__" and row_sku != sku_norm:
+            continue
+        if period and period != "__TOTAL__":
+            rd = _row_dict(r)
+            per_period = _disposition_period_from_row(rd, aggregation)
+            if per_period != period:
+                continue
+        is_waiting = _norm(r["status"]) == "FAIL" and _norm(r["pic"]) == "IGS"
+        status_norm = _norm(r["status"])
+        if metric == "waiting" and not is_waiting:
+            continue
+        if metric == "complete" and is_waiting:
+            continue
+        if metric == "all_pass_trays" and not _is_pass_status(status_norm):
+            continue
+        # trays_bp: include all rows (no additional filter)
+        filtered_rows.append(r)
+    rows = filtered_rows
+
+    # Per SN keep one row (latest by updated_at_ca_ms) for display
+    sn_rows: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        sn = (r["sn"] or "").strip()
+        if not sn:
+            continue
+        ca_ms = r["updated_at_ca_ms"]
+        existing = sn_rows.get(sn)
+        if existing is None or (ca_ms or 0) > (existing.get("updated_at_ca_ms") or 0):
+            sn_rows[sn] = {
+                "sn": sn,
+                "nvpn": (r["nvpn"] or "").strip() or "Unknown",
+                "status": (r["status"] or "").strip(),
+                "pic": (r["pic"] or "").strip(),
+                "nv_disposition": r["nv_disposition"],
+                "igs_action": r["igs_action"],
+                "updated_at_ca_ms": ca_ms,
+            }
+
+    out: List[Dict[str, Any]] = []
+    for sn, d in sn_rows.items():
+        nvpn = d["nvpn"]
+        last_nv = _last_mmdd_entry(d["nv_disposition"])
+        last_igs = _last_mmdd_entry(d["igs_action"])
+        out.append({
+            "sn": sn,
+            "last_nv_dispo": last_nv,
+            "last_igs_action": last_igs,
+            "nvpn": nvpn,
+            "status": d["status"],
+            "pic": d["pic"],
+        })
+    out.sort(key=lambda x: (x["sn"]))
+    return out
+
+
 def _parse_range_from_payload(payload: Dict[str, Any]) -> Tuple[Optional[Response], Optional[datetime], Optional[datetime]]:
     start_dt = payload.get("start_datetime")
     end_dt = payload.get("end_datetime")
@@ -1710,6 +2713,16 @@ def api_export():
     if export_kind in ("test_flow", "testflow"):
         write_test_flow()
         return _csv_response(out.getvalue(), f"test_flow_{start_s}_to_{end_s}.csv")
+    if export_kind == "disposition_summary":
+        start_ca_ms = utc_ms(start_ca)
+        end_ca_ms = utc_ms(end_ca)
+        dispo_data = compute_disposition_stats(aggregation="daily", start_ca_ms=start_ca_ms, end_ca_ms=end_ca_ms)
+        w.writerow(["metric", "value"])
+        summary = dispo_data.get("summary", {})
+        w.writerow(["Total Dispositions", summary.get("total", 0)])
+        w.writerow(["Waiting IGS", summary.get("waiting_igs", 0)])
+        w.writerow(["Complete", summary.get("complete", 0)])
+        return _csv_response(out.getvalue(), f"disposition_summary_{start_s}_to_{end_s}.csv")
 
     # dashboard (single table, per-SN; matches user's requested "one table only")
     # Columns are designed for Excel-friendly review.

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Analytics Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="/_sdk/element_sdk.js"></script>
+  <script src="/_sdk/element_sdk.js" onerror="console.warn('element_sdk.js not found, continuing without it')"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
@@ -571,6 +571,89 @@
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     border: 1.5px solid var(--color-border);
   }
+  /* Upload modal (bonepile mapping) needs more room */
+  #upload-modal .modal-content{
+    max-width: 980px;
+    max-height: 85vh;
+    overflow: auto;
+  }
+  .bp-card{
+    background: var(--color-bg);
+    border: 1.5px solid var(--color-border);
+    border-radius: 14px;
+    padding: 14px;
+  }
+  .bp-badge{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-muted);
+    background: var(--color-surface);
+  }
+  .bp-badge.ok{ color: var(--color-success); border-color: rgba(16,185,129,.35); }
+  .bp-badge.err{ color: var(--color-danger); border-color: rgba(239,68,68,.35); }
+  .bp-grid{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  @media (max-width: 768px){
+    .bp-grid{ grid-template-columns: 1fr; }
+    #upload-modal .modal-content{ max-width: 96vw; }
+  }
+  .bp-label{
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-muted);
+    margin-bottom: 6px;
+  }
+  .bp-input, .bp-select{
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1.5px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .bp-input:focus, .bp-select:focus{
+    border-color: rgba(99,102,241,.7);
+    box-shadow: 0 0 0 4px rgba(99,102,241,.15);
+  }
+  .bp-actions{
+    display:flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items:center;
+    justify-content:flex-end;
+    margin-top: 12px;
+  }
+  .bp-mini{
+    padding: 0.5rem 0.75rem;
+    border-radius: 10px;
+    border: 1.5px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-weight: 800;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .bp-mini:hover{
+    border-color: rgba(99,102,241,.7);
+    transform: translateY(-1px);
+  }
+  .dispo-agg-btn.active {
+    background: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
+  }
   .metric-btn{
     display:inline-flex;
     align-items:center;
@@ -668,7 +751,7 @@
   .api-status.warn{ border-color: rgba(245,158,11,.45); }
  </style>
   <style>@view-transition { navigation: auto; }</style>
-  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
+  <script src="/_sdk/data_sdk.js" type="text/javascript" onerror="console.warn('data_sdk.js not found, continuing without it')"></script>
  </head>
  <body class="h-full">
   <div class="app-wrapper">
@@ -935,6 +1018,138 @@
         </table>
       </div>
     </div>
+
+    <!-- NV Disposition section (loads independently, shown when ready) -->
+    <div class="dispo-section-divider" style="margin-top: 2.5rem; margin-bottom: 1.5rem; border-top: 2px solid var(--color-border); padding-top: 1.5rem;"></div>
+    <div class="panel" id="dispo-section" style="display: none;">
+      <div class="flex items-center justify-between gap-4 mb-4">
+        <h2 class="text-lg font-bold" style="color: var(--color-text);">NV Disposition</h2>
+        <div class="flex items-center gap-2">
+          <span class="text-sm" style="color: var(--color-muted);">Loading…</span>
+        </div>
+      </div>
+      <div id="dispo-content" style="display: none;">
+        <!-- Summary Overview (KPI Cards style) -->
+        <h2 class="text-2xl font-bold mb-6 animate-in delay-2" style="color: var(--color-text);">NV Disposition Summary</h2>
+        <div class="panel mb-8 animate-in delay-2">
+          <div class="flex items-center justify-between mb-5">
+            <h3 class="text-lg font-semibold" style="color: var(--color-text);">Disposition Overview</h3>
+            <div class="flex items-center gap-3">
+              <span class="text-sm font-semibold" style="color: var(--color-muted);" id="range-note-dispo">-</span>
+              <button class="btn-ghost btn-mini" id="export-dispo-summary" type="button" title="Export Disposition Summary to CSV">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-3-3m3 3l3-3M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path>
+                </svg>
+                Export CSV
+              </button>
+            </div>
+          </div>
+          <div class="kpi-grid mb-4">
+            <div class="kpi-card">
+              <div class="kpi-label">Total Dispositions</div>
+              <div class="kpi-value">
+                <div id="dispo-sum-total" class="text-3xl font-extrabold" style="color: var(--color-text);">-</div>
+                <button class="metric-btn" id="dispo-sum-total-btn" data-dispo-metric="total" data-dispo-segment="summary">View</button>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Waiting IGS</div>
+              <div class="kpi-value">
+                <div id="dispo-sum-waiting" class="text-3xl font-extrabold" style="color: var(--color-text);">-</div>
+                <button class="metric-btn" id="dispo-sum-waiting-btn" data-dispo-metric="waiting_igs" data-dispo-segment="summary">View</button>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Complete</div>
+              <div class="kpi-value">
+                <div id="dispo-sum-complete" class="text-3xl font-extrabold" style="color: var(--color-text);">-</div>
+                <button class="metric-btn" id="dispo-sum-complete-btn" data-dispo-metric="complete" data-dispo-segment="summary">View</button>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Unique Trays in BP</div>
+              <div class="kpi-value">
+                <div id="dispo-sum-trays-bp" class="text-3xl font-extrabold" style="color: var(--color-text);">-</div>
+                <button class="metric-btn" id="dispo-sum-trays-bp-btn" data-dispo-metric="trays_bp" data-dispo-segment="summary">View</button>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">All Pass Trays</div>
+              <div class="kpi-value">
+                <div id="dispo-sum-all-pass" class="text-3xl font-extrabold" style="color: var(--color-text);">-</div>
+                <button class="metric-btn" id="dispo-sum-all-pass-btn" data-dispo-metric="all_pass_trays" data-dispo-segment="summary">View</button>
+              </div>
+            </div>
+          </div>
+          <p class="text-xs mt-4" style="color: var(--color-muted);">
+            <strong>Note:</strong> Total Dispositions = sum of all NV disposition entries (each mm/dd date counts as one disposition). 
+            Waiting IGS = count of SNs whose last disposition status is "Fail" and PIC is "IGS". 
+            Complete = Total Dispositions - Waiting IGS.
+          </p>
+        </div>
+        <!-- By SKU -->
+        <div class="mb-6">
+          <div class="text-sm font-bold mb-2" style="color: var(--color-muted);">By SKU</div>
+          <div class="table-container">
+            <table class="data-table" id="dispo-sku-table">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Total</th>
+                  <th>Waiting IGS</th>
+                  <th>Complete</th>
+                </tr>
+              </thead>
+              <tbody id="dispo-sku-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- Tray Breakdown by SKU -->
+        <div class="mb-6">
+          <div class="text-sm font-bold mb-2" style="color: var(--color-muted);">Tray Breakdown by SKU</div>
+          <div class="table-container">
+            <table class="data-table" id="dispo-tray-sku-table">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Total Trays in BP</th>
+                  <th>All Pass Trays</th>
+                </tr>
+              </thead>
+              <tbody id="dispo-tray-sku-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- By period (Daily / Weekly / Monthly) - based on filter date range, period from mm/dd in disposition/IGS action -->
+        <div class="mb-6">
+          <div class="flex items-center justify-between gap-4 mb-2 flex-wrap">
+            <div class="text-sm font-bold" style="color: var(--color-muted);">By period</div>
+            <div class="flex items-center gap-3 flex-wrap">
+              <span class="text-sm font-semibold" style="color: var(--color-muted);" id="range-note-dispo-period">-</span>
+              <div class="flex gap-2">
+                <button type="button" class="bp-mini dispo-agg-btn active" data-dispo-agg="daily">Daily</button>
+                <button type="button" class="bp-mini dispo-agg-btn" data-dispo-agg="weekly">Weekly</button>
+                <button type="button" class="bp-mini dispo-agg-btn" data-dispo-agg="monthly">Monthly</button>
+              </div>
+            </div>
+          </div>
+          <p class="text-xs mb-2" style="color: var(--color-muted);">Period is derived from the last mm/dd in NV Disposition or IGS Action; only periods within the filter range are shown.</p>
+          <div class="table-container">
+            <table class="data-table" id="dispo-period-table">
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>Total</th>
+                  <th>Waiting IGS</th>
+                  <th>Complete</th>
+                </tr>
+              </thead>
+              <tbody id="dispo-period-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
    </main>
   </div><!-- Loading overlay -->
   <div class="api-status ok" id="api-status" aria-live="polite" aria-atomic="true">
@@ -969,9 +1184,41 @@
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
      </svg>
      <p class="font-semibold mb-2" style="color: var(--color-text);">Drag &amp; drop your file here</p>
-     <p class="text-sm mb-4" style="color: var(--color-muted);">or click to browse</p><input type="file" id="file-input" class="hidden" accept=".csv,.xlsx,.json"> <button class="btn-primary" id="browse-btn" type="button">Browse Files</button>
+     <p class="text-sm mb-4" style="color: var(--color-muted);">or click to browse</p><input type="file" id="file-input" class="hidden" accept=".xlsx"> <button class="btn-primary" id="browse-btn" type="button">Browse XLSX</button>
     </div>
-    <p class="text-xs mt-4 text-center" style="color: var(--color-muted);">Supported formats: CSV, XLSX, JSON (Max 10MB)</p>
+    <p class="text-xs mt-4 text-center" style="color: var(--color-muted);">Upload the NV/IGS workbook (.xlsx). The server will replace the previous file.</p>
+
+    <div class="mt-6" id="bonepile-panel">
+      <div class="bp-card">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <div class="text-sm font-bold" style="color: var(--color-text);">Bonepile workbook status</div>
+            <div class="text-xs mt-1" style="color: var(--color-muted);" id="bp-file-line">No file uploaded yet.</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="bp-badge" id="bp-parse-badge">Idle</span>
+            <button class="bp-mini" id="bp-refresh" type="button">Refresh</button>
+          </div>
+        </div>
+        <div class="mt-3 text-xs" style="color: var(--color-muted);" id="bp-ignored-line"></div>
+      </div>
+
+      <div class="mt-4 bp-card">
+        <div class="flex items-center justify-between gap-4 mb-3">
+          <div>
+            <div class="text-sm font-bold" style="color: var(--color-text);">Sheet mapping (optional)</div>
+            <div class="text-xs mt-1" style="color: var(--color-muted);">
+              Backend will auto-detect header by <b>SN</b> and auto-map columns by header name. Use mapping only if auto-detect fails.
+            </div>
+          </div>
+          <div class="bp-actions" style="margin-top:0;">
+            <button class="bp-mini" id="bp-parse-all" type="button">Parse All Sheets</button>
+          </div>
+        </div>
+
+        <div id="bp-sheets"></div>
+      </div>
+    </div>
    </div>
   </div>
 
@@ -1009,6 +1256,40 @@
       </div>
     </div>
   </div>
+
+  <!-- Disposition SN Modal (SN, Last NV Dispo, Last IGS Action) -->
+  <div class="modal-overlay" id="dispo-sn-modal">
+    <div class="modal-content" style="max-width: 1100px;">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 id="dispo-sn-modal-title" class="text-xl font-bold" style="color: var(--color-text);">NV Disposition – SN List</h3>
+          <div id="dispo-sn-modal-subtitle" class="text-sm mt-1" style="color: var(--color-muted);">-</div>
+        </div>
+        <button class="w-9 h-9 rounded-lg flex items-center justify-center transition-colors" style="background: var(--color-bg);" id="close-dispo-sn-modal" title="Close">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+      <div class="overflow-x-auto" style="max-height: 70vh; overflow-y: auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>SN</th>
+              <th>SKU</th>
+              <th>Status</th>
+              <th>PIC</th>
+              <th>Last NV Dispo</th>
+              <th>Last IGS Action</th>
+            </tr>
+          </thead>
+          <tbody id="dispo-sn-modal-tbody">
+            <tr><td colspan="6" style="color: var(--color-muted);">No data</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
   <script>
    const defaultConfig = {
      dashboard_title: 'Analytics Dashboard',
@@ -1031,11 +1312,17 @@
    }
 
    // Modal handling
-   function openModal() { document.getElementById('upload-modal').classList.add('active'); }
+   function openModal() {
+     document.getElementById('upload-modal').classList.add('active');
+     refreshBonepilePanel().catch(() => {});
+   }
    function closeModal() { document.getElementById('upload-modal').classList.remove('active'); }
 
    function openSnModal() { document.getElementById('sn-modal').classList.add('active'); }
    function closeSnModal() { document.getElementById('sn-modal').classList.remove('active'); }
+
+   function openDispoSnModal() { document.getElementById('dispo-sn-modal').classList.add('active'); }
+   function closeDispoSnModal() { document.getElementById('dispo-sn-modal').classList.remove('active'); }
 
    // Loading overlay
    function setLoading(active, text) {
@@ -1063,6 +1350,227 @@
      document.getElementById('agg-weekly').classList.toggle('active', a === 'weekly');
      document.getElementById('agg-monthly').classList.toggle('active', a === 'monthly');
     updateRangeNotes();
+   }
+
+   // NV Disposition (loads independently)
+   let dispoAggregation = 'daily';
+   let lastDispoData = null;
+
+   async function loadDispositionPanel() {
+     const section = document.getElementById('dispo-section');
+     const content = document.getElementById('dispo-content');
+     if (!section || !content) return;
+     section.style.display = 'block';
+     content.style.display = 'none';
+     const header = section.querySelector('.flex.items-center.justify-between span');
+     if (header) header.textContent = 'Loading…';
+     try {
+       const payload = getRangePayload();
+       const params = new URLSearchParams({
+         aggregation: dispoAggregation,
+         start_datetime: payload.start_datetime,
+         end_datetime: payload.end_datetime
+       });
+       const res = await fetch('/api/bonepile/disposition?' + params.toString());
+       const data = await res.json();
+       if (data.error) throw new Error(data.error);
+       lastDispoData = data;
+       if (header) header.textContent = '';
+       content.style.display = 'block';
+       renderDispositionSummary(data.summary || {});
+       renderDispositionBySku(data.by_sku || []);
+       renderDispositionByPeriod(data.by_period || []);
+       renderDispositionTrayBySku(data.tray_by_sku || []);
+     } catch (e) {
+       if (header) header.textContent = 'Error: ' + (e.message || e);
+     }
+   }
+
+   function renderDispositionSummary(summary) {
+     const total = summary.total ?? 0;
+     const waiting = summary.waiting_igs ?? 0;
+     const complete = summary.complete ?? 0;
+     const uniqueTraysBp = summary.unique_trays_bp ?? 0;
+     const allPassTrays = summary.all_pass_trays ?? 0;
+     
+     // Update KPI card values
+     const setValue = (id, val) => {
+       const el = document.getElementById(id);
+       if (el) el.textContent = (val === null || val === undefined) ? '-' : val;
+     };
+     setValue('dispo-sum-total', total);
+     setValue('dispo-sum-waiting', waiting);
+     setValue('dispo-sum-complete', complete);
+     setValue('dispo-sum-trays-bp', uniqueTraysBp);
+     setValue('dispo-sum-all-pass', allPassTrays);
+     
+     // Update View buttons
+     const setBtn = (id, val, metric) => {
+       const el = document.getElementById(id);
+       if (!el) return;
+       el.disabled = (val === 0 || val === '-' || val === null || val === undefined);
+       el.setAttribute('data-dispo-metric', metric);
+     };
+     setBtn('dispo-sum-total-btn', total, 'total');
+     setBtn('dispo-sum-waiting-btn', waiting, 'waiting_igs');
+     setBtn('dispo-sum-complete-btn', complete, 'complete');
+     setBtn('dispo-sum-trays-bp-btn', uniqueTraysBp, 'trays_bp');
+     setBtn('dispo-sum-all-pass-btn', allPassTrays, 'all_pass_trays');
+     
+     // Update range notes (Summary and By period)
+     const payload = getRangePayload();
+     const rangeEl = document.getElementById('range-note-dispo');
+     if (rangeEl) rangeEl.textContent = `${payload.start_datetime} → ${payload.end_datetime} (CA)`;
+     const rangePeriodEl = document.getElementById('range-note-dispo-period');
+     if (rangePeriodEl) rangePeriodEl.textContent = `${payload.start_datetime} → ${payload.end_datetime} (CA)`;
+   }
+
+   function renderDispositionBySku(rows) {
+     const tbody = document.getElementById('dispo-sku-tbody');
+     if (!tbody) return;
+     if (!rows || !rows.length) {
+       tbody.innerHTML = '<tr><td colspan="4" style="color: var(--color-muted);">No data</td></tr>';
+       return;
+     }
+     let totalTotal = 0, totalWaiting = 0, totalComplete = 0;
+     const rowsHtml = rows.map(r => {
+       const total = r.total ?? 0;
+       const waiting = r.waiting_igs ?? 0;
+       const complete = r.complete ?? 0;
+       totalTotal += total;
+       totalWaiting += waiting;
+       totalComplete += complete;
+       const sku = (r.sku || 'Unknown').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+       return `<tr>
+         <td class="font-mono font-semibold">${sku}</td>
+         <td><button type="button" class="metric-btn" data-dispo-metric="total" data-dispo-segment="sku" data-dispo-sku="${sku}" ${total === 0 ? 'disabled' : ''}>${total}</button></td>
+         <td><button type="button" class="metric-btn" data-dispo-metric="waiting_igs" data-dispo-segment="sku" data-dispo-sku="${sku}" ${waiting === 0 ? 'disabled' : ''}>${waiting}</button></td>
+         <td><button type="button" class="metric-btn" data-dispo-metric="complete" data-dispo-segment="sku" data-dispo-sku="${sku}" ${complete === 0 ? 'disabled' : ''}>${complete}</button></td>
+       </tr>`;
+     }).join('');
+     const totalRow = `<tr style="background: var(--color-bg); font-weight: bold;">
+       <td class="font-mono font-semibold">TOTAL</td>
+       <td><button type="button" class="metric-btn" data-dispo-metric="total" data-dispo-segment="sku" data-dispo-sku="__TOTAL__" ${totalTotal === 0 ? 'disabled' : ''}>${totalTotal}</button></td>
+       <td><button type="button" class="metric-btn" data-dispo-metric="waiting_igs" data-dispo-segment="sku" data-dispo-sku="__TOTAL__" ${totalWaiting === 0 ? 'disabled' : ''}>${totalWaiting}</button></td>
+       <td><button type="button" class="metric-btn" data-dispo-metric="complete" data-dispo-segment="sku" data-dispo-sku="__TOTAL__" ${totalComplete === 0 ? 'disabled' : ''}>${totalComplete}</button></td>
+     </tr>`;
+     tbody.innerHTML = rowsHtml + totalRow;
+   }
+
+   function renderDispositionByPeriod(rows) {
+     const tbody = document.getElementById('dispo-period-tbody');
+     if (!tbody) return;
+     if (!rows || !rows.length) {
+       tbody.innerHTML = '<tr><td colspan="4" style="color: var(--color-muted);">No data</td></tr>';
+       return;
+     }
+     let totalTotal = 0, totalWaiting = 0, totalComplete = 0;
+     const rowsHtml = rows.map(r => {
+       const total = r.total ?? 0;
+       const waiting = r.waiting_igs ?? 0;
+       const complete = r.complete ?? 0;
+       totalTotal += total;
+       totalWaiting += waiting;
+       totalComplete += complete;
+       const period = (r.period || '').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+       return `<tr>
+         <td class="font-mono font-semibold">${period}</td>
+         <td><button type="button" class="metric-btn" data-dispo-metric="total" data-dispo-segment="period" data-dispo-period="${period}" ${total === 0 ? 'disabled' : ''}>${total}</button></td>
+         <td><button type="button" class="metric-btn" data-dispo-metric="waiting_igs" data-dispo-segment="period" data-dispo-period="${period}" ${waiting === 0 ? 'disabled' : ''}>${waiting}</button></td>
+         <td><button type="button" class="metric-btn" data-dispo-metric="complete" data-dispo-segment="period" data-dispo-period="${period}" ${complete === 0 ? 'disabled' : ''}>${complete}</button></td>
+       </tr>`;
+     }).join('');
+     const totalRow = `<tr style="background: var(--color-bg); font-weight: bold;">
+       <td class="font-mono font-semibold">TOTAL</td>
+       <td><button type="button" class="metric-btn" data-dispo-metric="total" data-dispo-segment="period" data-dispo-period="__TOTAL__" ${totalTotal === 0 ? 'disabled' : ''}>${totalTotal}</button></td>
+       <td><button type="button" class="metric-btn" data-dispo-metric="waiting_igs" data-dispo-segment="period" data-dispo-period="__TOTAL__" ${totalWaiting === 0 ? 'disabled' : ''}>${totalWaiting}</button></td>
+       <td><button type="button" class="metric-btn" data-dispo-metric="complete" data-dispo-segment="period" data-dispo-period="__TOTAL__" ${totalComplete === 0 ? 'disabled' : ''}>${totalComplete}</button></td>
+     </tr>`;
+     tbody.innerHTML = rowsHtml + totalRow;
+   }
+
+   function renderDispositionTrayBySku(rows) {
+     const tbody = document.getElementById('dispo-tray-sku-tbody');
+     if (!tbody) return;
+     if (!rows || !rows.length) {
+       tbody.innerHTML = '<tr><td colspan="3" style="color: var(--color-muted);">No data</td></tr>';
+       return;
+     }
+     let totalTrays = 0, totalAllPass = 0;
+     const rowsHtml = rows.map(r => {
+       const totalTraysBp = r.total_trays ?? 0;
+       const allPassTrays = r.all_pass_trays ?? 0;
+       totalTrays += totalTraysBp;
+       totalAllPass += allPassTrays;
+       const sku = (r.sku || 'Unknown').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+       return `<tr>
+         <td class="font-mono font-semibold">${sku}</td>
+         <td><button type="button" class="metric-btn" data-dispo-metric="trays_bp" data-dispo-segment="tray_sku" data-dispo-sku="${sku}" ${totalTraysBp === 0 ? 'disabled' : ''}>${totalTraysBp}</button></td>
+         <td><button type="button" class="metric-btn" data-dispo-metric="all_pass_trays" data-dispo-segment="tray_sku" data-dispo-sku="${sku}" ${allPassTrays === 0 ? 'disabled' : ''}>${allPassTrays}</button></td>
+       </tr>`;
+     }).join('');
+     const totalRow = `<tr style="background: var(--color-bg); font-weight: bold;">
+       <td class="font-mono font-semibold">TOTAL</td>
+       <td><button type="button" class="metric-btn" data-dispo-metric="trays_bp" data-dispo-segment="tray_sku" data-dispo-sku="__TOTAL__" ${totalTrays === 0 ? 'disabled' : ''}>${totalTrays}</button></td>
+       <td><button type="button" class="metric-btn" data-dispo-metric="all_pass_trays" data-dispo-segment="tray_sku" data-dispo-sku="__TOTAL__" ${totalAllPass === 0 ? 'disabled' : ''}>${totalAllPass}</button></td>
+     </tr>`;
+     tbody.innerHTML = rowsHtml + totalRow;
+   }
+
+   async function loadDispositionSnList(metric, sku, period) {
+     setApiStatus('Loading disposition SN list…', 'busy');
+     setLoading(true, 'Loading SN list…');
+     openDispoSnModal();
+     const title = document.getElementById('dispo-sn-modal-title');
+     const subtitle = document.getElementById('dispo-sn-modal-subtitle');
+     const tbody = document.getElementById('dispo-sn-modal-tbody');
+     title.textContent = 'NV Disposition – SN List';
+     
+     let metricLabel = 'Total';
+     if (metric === 'waiting_igs') metricLabel = 'Waiting IGS';
+     else if (metric === 'complete') metricLabel = 'Complete';
+     else if (metric === 'trays_bp') metricLabel = 'Unique Trays in BP';
+     else if (metric === 'all_pass_trays') metricLabel = 'All Pass Trays';
+     
+     subtitle.textContent = metricLabel + (sku && sku !== '__TOTAL__' ? ' • ' + sku : '') + (period && period !== '__TOTAL__' ? ' • ' + period : '');
+     tbody.innerHTML = '<tr><td colspan="6" style="color: var(--color-muted);">Loading…</td></tr>';
+     try {
+       const payload = getRangePayload();
+       const res = await fetch('/api/bonepile/disposition/sn-list', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ 
+           metric: metric === 'waiting_igs' ? 'waiting' : metric, 
+           sku: (sku && sku !== '__TOTAL__') ? sku : undefined, 
+           period: (period && period !== '__TOTAL__') ? period : undefined, 
+           aggregation: dispoAggregation,
+           start_datetime: payload.start_datetime,
+           end_datetime: payload.end_datetime
+         })
+       });
+       const data = await res.json();
+       if (data.error) throw new Error(data.error);
+       const rows = data.rows || [];
+       if (!rows.length) {
+         tbody.innerHTML = '<tr><td colspan="6" style="color: var(--color-muted);">No data</td></tr>';
+       } else {
+         tbody.innerHTML = rows.map(r => {
+           const sn = (r.sn || '').replace(/</g, '&lt;');
+           const nvpn = (r.nvpn || '').replace(/</g, '&lt;');
+           const status = (r.status || '').replace(/</g, '&lt;');
+           const pic = (r.pic || '').replace(/</g, '&lt;');
+           const lastNv = (r.last_nv_dispo || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+           const lastIgs = (r.last_igs_action || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+           return `<tr><td class="font-mono font-semibold">${sn}</td><td class="font-mono">${nvpn}</td><td>${status}</td><td>${pic}</td><td class="font-mono text-xs" style="max-width:280px;word-break:break-word;">${lastNv}</td><td class="font-mono text-xs" style="max-width:280px;word-break:break-word;">${lastIgs}</td></tr>`;
+         }).join('');
+       }
+       subtitle.textContent = metricLabel + (sku && sku !== '__TOTAL__' ? ' • ' + sku : '') + (period && period !== '__TOTAL__' ? ' • ' + period : '') + ' • ' + (data.count || 0) + ' SN';
+       setApiStatus('Ready', 'ok');
+     } catch (e) {
+       tbody.innerHTML = '<tr><td colspan="6" style="color: var(--color-danger);">' + (e.message || e) + '</td></tr>';
+       setApiStatus('Error: ' + (e.message || e), 'err');
+     }
+     setLoading(false);
    }
 
    // Helpers
@@ -1114,6 +1622,355 @@
      } catch (e) {
       document.getElementById('cache-data-coverage').textContent = 'unknown';
       document.getElementById('cache-last-scan').textContent = 'unknown';
+     }
+   }
+
+   function _applyBonepileStatus(bp) {
+     const line = document.getElementById('bp-file-line');
+     const badge = document.getElementById('bp-parse-badge');
+     if (!line || !badge) return;
+     const file = (bp && bp.file) ? bp.file : {};
+     const sheets = (bp && bp.sheets) ? bp.sheets : {};
+     const has = !!file.has_file;
+     if (!has) {
+       line.textContent = 'No file uploaded yet.';
+       badge.classList.remove('ok','err');
+       badge.textContent = 'Idle';
+       return;
+     }
+     const name = file.original_name || 'bonepile_upload.xlsx';
+     const ts = file.uploaded_at_ca_ms ? fmtDateTimeCAFromMs(file.uploaded_at_ca_ms) : 'unknown';
+     line.textContent = `${name} • uploaded ${ts} (CA)`;
+     
+     // Compute summary: count ok/error sheets and total rows
+     let okCount = 0, errCount = 0, totalRows = 0;
+     const sheetNames = Object.keys(sheets || {});
+     sheetNames.forEach(k => {
+       const s = sheets[k];
+       if (!s || typeof s !== 'object') return;
+       if (s.status === 'ok') {
+         okCount++;
+         totalRows += (s.rows || 0);
+       } else if (s.status === 'error') {
+         errCount++;
+       }
+     });
+     
+     badge.classList.remove('ok','err');
+     if (errCount > 0) {
+       badge.textContent = `✗ Errors (${errCount} sheet${errCount > 1 ? 's' : ''} failed)`;
+       badge.classList.add('err');
+     } else if (okCount > 0) {
+       const sheetText = okCount === sheetNames.length ? 'All parsed' : `${okCount}/${sheetNames.length} parsed`;
+       badge.textContent = `✓ ${sheetText} (${totalRows} rows)`;
+       badge.classList.add('ok');
+     } else {
+       badge.textContent = 'Not parsed yet';
+     }
+   }
+
+   function _pickHeader(headers, candidates) {
+     const set = new Set((headers || []).map(h => String(h).toUpperCase()));
+     for (const c of candidates) {
+       if (set.has(String(c).toUpperCase())) return c;
+     }
+     // partial match fallback
+     for (const h of (headers || [])) {
+       const up = String(h).toUpperCase();
+       for (const c of candidates) {
+         if (up.includes(String(c).toUpperCase())) return h;
+       }
+     }
+     return '';
+   }
+
+   function _renderBonepileSheets(data) {
+     const wrap = document.getElementById('bp-sheets');
+     const ignored = document.getElementById('bp-ignored-line');
+     if (!wrap) return;
+     if (ignored) {
+       const ig = (data && data.ignored) ? data.ignored : [];
+       ignored.textContent = ig.length ? (`Ignored sheets: ${ig.join(', ')}`) : '';
+     }
+     if (!data || !data.sheets) {
+       wrap.innerHTML = `<div class="text-xs" style="color: var(--color-muted);">Upload a workbook to configure mapping.</div>`;
+       return;
+     }
+     const sheets = data.sheets;
+     const order = (data.allowed || Object.keys(sheets));
+     wrap.innerHTML = order.map(sheet => {
+       const info = sheets[sheet] || {};
+       const present = !!info.present;
+       const headers = info.headers || [];
+       const saved = info.saved_mapping || null;
+       const st = info.status || null;
+       const headerRow = (saved && saved.header_row) ? saved.header_row : (info.header_row || '');
+
+       const defaultCols = {
+         sn: _pickHeader(headers, ['SN']),
+         nv_disposition: _pickHeader(headers, ['NV DISPOSITION','NV DISPO']),
+         status: _pickHeader(headers, ['STATUS']),
+         pic: _pickHeader(headers, ['PIC']),
+         igs_action: _pickHeader(headers, ['IGS ACTION']),
+         igs_status: _pickHeader(headers, ['IGS STATUS']),
+         nvpn: _pickHeader(headers, ['NVPN','PART NUMBER','SKU']),
+       };
+       const savedCols = (saved && saved.columns) ? saved.columns : {};
+       const colValue = (k) => (savedCols && savedCols[k]) ? savedCols[k] : (defaultCols[k] || '');
+
+       const skipped = st && st.skipped === true;
+       const badge = skipped ? '' : (st && st.status === 'ok' ? 'ok' : (st && st.status === 'error' ? 'err' : ''));
+       const badgeText = skipped
+         ? `⏭ Skipped (unchanged)`
+         : (st && st.status === 'ok' 
+           ? `✓ Parsed: ${st.rows || 0} rows` 
+           : (st && st.status === 'error' ? '✗ Error' : 'Not parsed'));
+
+       const opts = (headers || []).map(h => `<option value="${String(h).replace(/"/g,'&quot;')}">${h}</option>`).join('');
+       const errText = (info.auto_errors && info.auto_errors.length) ? info.auto_errors.join('; ') : '';
+       const stErr = st && st.error ? st.error : '';
+       const skipReason = st && st.skip_reason ? st.skip_reason : '';
+       const msg = skipReason || stErr || errText;
+
+       return `
+         <div class="bp-card mb-3" data-sheet="${sheet}">
+           <div class="flex items-center justify-between gap-4">
+             <div>
+               <div class="text-sm font-bold" style="color: var(--color-text);">${sheet} ${present ? '' : '<span class="text-xs" style="color: var(--color-muted);">(not found in file)</span>'}</div>
+               <div class="text-xs mt-1" style="color: var(--color-muted);" id="bp-msg-${sheet}">${msg ? msg : ''}</div>
+             </div>
+             <span class="bp-badge ${badge}" id="bp-badge-${sheet}">${badgeText}</span>
+           </div>
+
+           <div class="mt-3 bp-grid" ${present ? '' : 'style="opacity:0.6; pointer-events:none;"'}>
+             <div>
+               <div class="bp-label">Header row (1-based)</div>
+               <input class="bp-input" type="number" min="1" step="1" id="bp-header-${sheet}" value="${headerRow}">
+             </div>
+             <div>
+               <div class="bp-label">SN</div>
+               <select class="bp-select" id="bp-col-${sheet}-sn">
+                 <option value=""></option>
+                 ${opts}
+               </select>
+             </div>
+             <div>
+               <div class="bp-label">NV Disposition</div>
+               <select class="bp-select" id="bp-col-${sheet}-nv_disposition">
+                 <option value=""></option>
+                 ${opts}
+               </select>
+             </div>
+             <div>
+               <div class="bp-label">Status</div>
+               <select class="bp-select" id="bp-col-${sheet}-status">
+                 <option value=""></option>
+                 ${opts}
+               </select>
+             </div>
+             <div>
+               <div class="bp-label">PIC</div>
+               <select class="bp-select" id="bp-col-${sheet}-pic">
+                 <option value=""></option>
+                 ${opts}
+               </select>
+             </div>
+             <div>
+               <div class="bp-label">IGS Action</div>
+               <select class="bp-select" id="bp-col-${sheet}-igs_action">
+                 <option value=""></option>
+                 ${opts}
+               </select>
+             </div>
+             <div>
+               <div class="bp-label">IGS Status</div>
+               <select class="bp-select" id="bp-col-${sheet}-igs_status">
+                 <option value=""></option>
+                 ${opts}
+               </select>
+             </div>
+             <div>
+               <div class="bp-label">NVPN (optional)</div>
+               <select class="bp-select" id="bp-col-${sheet}-nvpn">
+                 <option value=""></option>
+                 ${opts}
+               </select>
+             </div>
+           </div>
+
+           <div class="bp-actions">
+             <button class="bp-mini" type="button" data-bp-auto="${sheet}">Auto-detect</button>
+             <button class="bp-mini" type="button" data-bp-save="${sheet}">Save mapping + Parse</button>
+             <button class="bp-mini" type="button" data-bp-parse="${sheet}">Parse sheet</button>
+           </div>
+         </div>
+       `;
+     }).join('');
+
+     // Set select defaults after DOM is built
+     order.forEach(sheet => {
+       const info = sheets[sheet] || {};
+       if (!info.present) return;
+       const headers = info.headers || [];
+       const saved = info.saved_mapping || null;
+       const savedCols = (saved && saved.columns) ? saved.columns : {};
+       const setSel = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+       const defaults = {
+         sn: _pickHeader(headers, ['SN']),
+         nv_disposition: _pickHeader(headers, ['NV DISPOSITION','NV DISPO']),
+         status: _pickHeader(headers, ['STATUS']),
+         pic: _pickHeader(headers, ['PIC']),
+         igs_action: _pickHeader(headers, ['IGS ACTION']),
+         igs_status: _pickHeader(headers, ['IGS STATUS']),
+         nvpn: _pickHeader(headers, ['NVPN','PART NUMBER','SKU']),
+       };
+       Object.keys(defaults).forEach(k => {
+         setSel(`bp-col-${sheet}-${k}`, savedCols[k] || defaults[k] || '');
+       });
+     });
+   }
+
+   async function refreshBonepilePanel() {
+     try {
+       const res = await fetch('/api/bonepile/status');
+       const bp = await res.json();
+       _applyBonepileStatus(bp);
+     } catch (e) {}
+     try {
+       const res2 = await fetch('/api/bonepile/sheets');
+       const data = await res2.json();
+       if (data && data.error) throw new Error(data.error);
+       _renderBonepileSheets(data);
+     } catch (e) {
+       const wrap = document.getElementById('bp-sheets');
+       if (wrap) wrap.innerHTML = `<div class="text-xs" style="color: var(--color-muted);">Bonepile mapping unavailable: ${e.message || e}</div>`;
+     }
+   }
+
+   async function pollBonepileJob(jobId) {
+     for (let i = 0; i < 600; i++) {
+       const res = await fetch(`/api/job/${encodeURIComponent(jobId)}`);
+       const data = await res.json();
+       setLoading(true, data.message || 'Parsing...');
+       if (data.status === 'done') {
+         await refreshBonepilePanel();
+         // Get summary from refreshed status
+         try {
+           const statusRes = await fetch('/api/bonepile/status');
+           const bp = await statusRes.json();
+           const sheets = bp.sheets || {};
+           let okCount = 0, totalRows = 0;
+           Object.keys(sheets).forEach(k => {
+             const s = sheets[k];
+             if (s && s.status === 'ok') {
+               okCount++;
+               totalRows += (s.rows || 0);
+             }
+           });
+           const summary = okCount > 0 ? ` (${okCount} sheet${okCount > 1 ? 's' : ''}, ${totalRows} rows)` : '';
+           setApiStatus(`✓ Parse completed${summary}`, 'ok');
+         } catch (e) {
+           setApiStatus('✓ Parse completed', 'ok');
+         }
+         setLoading(false);
+         return data;
+       }
+       if (data.status === 'error') {
+         await refreshBonepilePanel();
+         const errMsg = data.error || 'unknown error';
+         setApiStatus(`✗ Parse error: ${errMsg}`, 'err');
+         setLoading(false);
+         throw new Error(errMsg);
+       }
+       await new Promise(r => setTimeout(r, 1000));
+     }
+     setLoading(false);
+     setApiStatus('✗ Parse timeout', 'err');
+     throw new Error('Parse timeout');
+   }
+
+   let isUploadingBonepile = false;
+   async function uploadBonepileFile(file) {
+     if (!file) return;
+     if (isUploadingBonepile) {
+       console.log('Upload already in progress, skipping duplicate call');
+       return;
+     }
+     isUploadingBonepile = true;
+     try {
+       setApiStatus('Uploading workbook...', 'work');
+       setLoading(true, 'Uploading workbook...');
+       const fd = new FormData();
+       fd.append('file', file);
+       const res = await fetch('/api/bonepile/upload', { method: 'POST', body: fd });
+       const data = await res.json();
+       if (!res.ok || data.error) throw new Error(data.error || 'Upload failed');
+       
+       if (data.job_id) {
+         // Auto-parse all sheets (with auto-detect, hash check will skip unchanged sheets)
+         setApiStatus('Auto-parsing all sheets with auto-detect...', 'work');
+         await pollBonepileJob(data.job_id);
+       } else {
+         setLoading(false);
+         setApiStatus('Upload completed.', 'ok');
+         await refreshBonepilePanel();
+       }
+     } finally {
+       isUploadingBonepile = false;
+       // Clear input to prevent re-trigger on same file selection
+       const fi = document.getElementById('file-input');
+       if (fi) fi.value = '';
+     }
+   }
+
+   async function saveBonepileMapping(sheet) {
+     const header = document.getElementById(`bp-header-${sheet}`)?.value;
+     const payload = {
+       sheet,
+       header_row: Number(header || 0),
+       columns: {
+         sn: document.getElementById(`bp-col-${sheet}-sn`)?.value || '',
+         nv_disposition: document.getElementById(`bp-col-${sheet}-nv_disposition`)?.value || '',
+         status: document.getElementById(`bp-col-${sheet}-status`)?.value || '',
+         pic: document.getElementById(`bp-col-${sheet}-pic`)?.value || '',
+         igs_action: document.getElementById(`bp-col-${sheet}-igs_action`)?.value || '',
+         igs_status: document.getElementById(`bp-col-${sheet}-igs_status`)?.value || '',
+         nvpn: document.getElementById(`bp-col-${sheet}-nvpn`)?.value || '',
+       }
+     };
+     setApiStatus(`Saving mapping for ${sheet}...`, 'work');
+     const res = await fetch('/api/bonepile/mapping', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify(payload),
+     });
+     const out = await res.json();
+     if (!res.ok || out.error) throw new Error(out.error || 'Save failed');
+     if (out.job_id) {
+       setLoading(true, 'Parsing...');
+       await pollBonepileJob(out.job_id);
+     } else {
+       setApiStatus('Mapping saved.', 'ok');
+       await refreshBonepilePanel();
+     }
+   }
+
+   async function parseBonepile(sheet = null) {
+     setApiStatus('Parsing workbook...', 'work');
+     setLoading(true, 'Parsing...');
+     const res = await fetch('/api/bonepile/parse', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify(sheet ? { sheet } : {}),
+     });
+     const out = await res.json();
+     if (!res.ok || out.error) throw new Error(out.error || 'Parse failed');
+     if (out.job_id) {
+       await pollBonepileJob(out.job_id);
+     } else {
+       setLoading(false);
+       setApiStatus('Parse started.', 'ok');
+       await refreshBonepilePanel();
      }
    }
 
@@ -1356,7 +2213,17 @@
    }
 
    async function runQuery({forceScan = false} = {}) {
-     const payload = getRangePayload();
+     let payload = getRangePayload();
+     // Fallback: if dates are empty (e.g. first load), set defaults and re-read
+     if (!payload.start_datetime || !payload.end_datetime) {
+       const startEl = document.getElementById('start-date');
+       const endEl = document.getElementById('end-date');
+       const now = new Date();
+       const lastWeek = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+       if (startEl) startEl.value = fmtDateCA(lastWeek);
+       if (endEl) endEl.value = fmtDateCA(now);
+       payload = getRangePayload();
+     }
      if (forceScan) {
        setLoading(true, 'Starting manual scan...');
       setApiStatus('Manual scan requested...', 'busy');
@@ -1377,7 +2244,15 @@
        headers: { 'Content-Type': 'application/json' },
        body: JSON.stringify(payload)
      });
-     const data = await res.json();
+     let data;
+     try {
+       data = await res.json();
+     } catch (e) {
+       throw new Error(res.status ? `Server error ${res.status}` : 'Network or invalid response');
+     }
+     if (!res.ok) {
+       throw new Error(data && data.error ? data.error : (res.statusText || `Error ${res.status}`));
+     }
      if (data.error) throw new Error(data.error);
 
      renderSummary(data.summary);
@@ -1455,25 +2330,102 @@
      setLoading(false);
    }
 
-   // Event listeners
-   document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
-   document.getElementById('upload-btn').addEventListener('click', openModal);
-   document.getElementById('close-modal').addEventListener('click', closeModal);
-   document.getElementById('upload-modal').addEventListener('click', (e) => { if (e.target.id === 'upload-modal') closeModal(); });
-   document.getElementById('close-sn-modal').addEventListener('click', closeSnModal);
-   document.getElementById('sn-modal').addEventListener('click', (e) => { if (e.target.id === 'sn-modal') closeSnModal(); });
-   document.getElementById('browse-btn').addEventListener('click', () => { document.getElementById('file-input').click(); });
+   // Helper to safely add event listeners
+   function safeAddListener(id, event, handler) {
+     try {
+       const el = document.getElementById(id);
+       if (el && typeof handler === 'function') {
+         el.addEventListener(event, handler);
+       }
+     } catch (e) {
+       console.error(`Error adding listener to ${id}:`, e);
+     }
+   }
 
-   document.getElementById('apply-filter').addEventListener('click', () => {
+   // Event listeners (wrapped in try-catch to prevent crashes)
+   try {
+     safeAddListener('theme-toggle', 'click', toggleTheme);
+     safeAddListener('upload-btn', 'click', openModal);
+     safeAddListener('close-modal', 'click', closeModal);
+     safeAddListener('upload-modal', 'click', (e) => { if (e.target.id === 'upload-modal') closeModal(); });
+     safeAddListener('close-sn-modal', 'click', closeSnModal);
+     safeAddListener('sn-modal', 'click', (e) => { if (e.target.id === 'sn-modal') closeSnModal(); });
+   } catch (e) {
+     console.error('Error setting main event listeners:', e);
+   }
+   safeAddListener('browse-btn', 'click', (e) => {
+     e.stopPropagation(); // Prevent bubbling to drop-zone
+     const fi = document.getElementById('file-input');
+     if (fi) fi.click();
+   });
+
+   // Bonepile upload (XLSX) + mapping UI
+   const dz = document.getElementById('drop-zone');
+   const fi = document.getElementById('file-input');
+   if (dz && fi) {
+     dz.addEventListener('click', (e) => {
+       // Only trigger if click is on drop-zone itself or its children, but NOT on the browse button
+       if (e.target.id !== 'browse-btn' && !e.target.closest('#browse-btn')) {
+         fi.click();
+       }
+     });
+     dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.style.borderColor = 'rgba(99,102,241,.8)'; });
+     dz.addEventListener('dragleave', () => { dz.style.borderColor = 'var(--color-border)'; });
+     dz.addEventListener('drop', (e) => {
+       e.preventDefault();
+       dz.style.borderColor = 'var(--color-border)';
+       const file = e.dataTransfer?.files?.[0];
+       if (file) {
+         // Prevent input change event from also triggering
+         fi.value = '';
+         uploadBonepileFile(file).catch(err => { setLoading(false); setApiStatus('Error: ' + err.message, 'err'); alert(err.message); });
+       }
+     });
+     fi.addEventListener('change', (e) => {
+       const file = e.target.files && e.target.files[0];
+       if (file) {
+         uploadBonepileFile(file).catch(err => { setLoading(false); setApiStatus('Error: ' + err.message, 'err'); alert(err.message); });
+       }
+     });
+   }
+   const bpRefresh = document.getElementById('bp-refresh');
+   if (bpRefresh) bpRefresh.addEventListener('click', () => refreshBonepilePanel().catch(() => {}));
+   const bpParseAll = document.getElementById('bp-parse-all');
+   if (bpParseAll) bpParseAll.addEventListener('click', () => parseBonepile(null).catch(err => { setApiStatus('Error: ' + err.message, 'err'); alert(err.message); }));
+   const bpSheets = document.getElementById('bp-sheets');
+   if (bpSheets) bpSheets.addEventListener('click', (e) => {
+     const autoBtn = e.target?.closest?.('button[data-bp-auto]');
+     const saveBtn = e.target?.closest?.('button[data-bp-save]');
+     const parseBtn = e.target?.closest?.('button[data-bp-parse]');
+     if (autoBtn) {
+       const sheet = autoBtn.getAttribute('data-bp-auto');
+       // just refresh (auto defaults get applied on render)
+       refreshBonepilePanel().catch(() => {});
+     }
+     if (saveBtn) {
+       const sheet = saveBtn.getAttribute('data-bp-save');
+       saveBonepileMapping(sheet).catch(err => { setApiStatus('Error: ' + err.message, 'err'); alert(err.message); });
+     }
+     if (parseBtn) {
+       const sheet = parseBtn.getAttribute('data-bp-parse');
+       parseBonepile(sheet).catch(err => { setApiStatus('Error: ' + err.message, 'err'); alert(err.message); });
+     }
+   });
+
+   safeAddListener('apply-filter', 'click', () => {
      runQuery().catch(err => {
        console.error(err);
        setLoading(false);
       setApiStatus('Error: ' + err.message, 'err');
        alert('Error: ' + err.message);
      });
+     // Also reload NV Disposition panel with the new filter
+     loadDispositionPanel().catch(err => {
+       console.error('loadDispositionPanel error:', err);
+     });
    });
 
-   document.getElementById('refresh-page').addEventListener('click', () => {
+   safeAddListener('refresh-page', 'click', () => {
      location.reload();
    });
 
@@ -1499,15 +2451,22 @@
       alert('Error: ' + err.message);
     });
   });
-  document.getElementById('export-breakdown').addEventListener('click', () => {
+  safeAddListener('export-breakdown', 'click', () => {
     downloadCsv('breakdown').catch(err => {
       console.error(err);
       setLoading(false);
       alert('Error: ' + err.message);
     });
   });
-  document.getElementById('export-flow').addEventListener('click', () => {
+  safeAddListener('export-flow', 'click', () => {
     downloadCsv('test_flow').catch(err => {
+      console.error(err);
+      setLoading(false);
+      alert('Error: ' + err.message);
+    });
+  });
+  safeAddListener('export-dispo-summary', 'click', () => {
+    downloadCsv('disposition_summary').catch(err => {
       console.error(err);
       setLoading(false);
       alert('Error: ' + err.message);
@@ -1515,7 +2474,7 @@
   });
 
    // Metric drilldown clicks (Summary matrix)
-   document.getElementById('summary-matrix').addEventListener('click', (e) => {
+   safeAddListener('summary-matrix', 'click', (e) => {
      const btn = e.target?.closest?.('button[data-metric][data-segment]');
      if (!btn) return;
      if (btn.disabled) return;
@@ -1530,7 +2489,7 @@
    });
 
    // KPI drilldown clicks
-   document.getElementById('kpi-row').addEventListener('click', (e) => {
+   safeAddListener('kpi-row', 'click', (e) => {
      const btn = e.target?.closest?.('button[data-metric][data-segment]');
      if (!btn) return;
      if (btn.disabled) return;
@@ -1545,7 +2504,7 @@
    });
 
    // SKU drilldown clicks (each number becomes a button)
-   document.getElementById('sku-table').addEventListener('click', (e) => {
+   safeAddListener('sku-table', 'click', (e) => {
      const btn = e.target?.closest?.('button[data-sku][data-metric]');
      if (!btn) return;
      if (btn.disabled) return;
@@ -1560,7 +2519,7 @@
    });
 
    // Breakdown drilldown clicks
-   document.getElementById('breakdown-table').addEventListener('click', (e) => {
+   safeAddListener('breakdown-table', 'click', (e) => {
      const btn = e.target?.closest?.('button[data-period][data-metric][data-segment]');
      if (!btn) return;
      if (btn.disabled) return;
@@ -1573,9 +2532,10 @@
        setLoading(false);
        alert('Error: ' + err.message);
      });
+   });
 
   // Test Flow drilldown clicks (station-level pass/fail)
-  document.getElementById('test-flow-table').addEventListener('click', (e) => {
+  safeAddListener('test-flow-table', 'click', (e) => {
     const btn = e.target?.closest?.('button[data-flow="1"]');
     if (!btn) return;
     if (btn.disabled) return;
@@ -1605,9 +2565,59 @@
         alert('Error: ' + err.message);
       });
   });
-   });
 
-   document.getElementById('manual-scan').addEventListener('click', () => {
+  // NV Disposition event listeners (wrapped in try-catch)
+  try {
+    ['dispo-sum-total-btn','dispo-sum-waiting-btn','dispo-sum-complete-btn','dispo-sum-trays-bp-btn','dispo-sum-all-pass-btn'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', () => {
+        const metric = el.getAttribute('data-dispo-metric');
+        if (metric) loadDispositionSnList(metric, null, null).catch(err => { setLoading(false); alert('Error: ' + err.message); });
+      });
+    });
+    const dispoSkuTable = document.getElementById('dispo-sku-table');
+    if (dispoSkuTable) dispoSkuTable.addEventListener('click', (e) => {
+      const btn = e.target?.closest?.('button[data-dispo-metric][data-dispo-segment="sku"]');
+      if (!btn || btn.disabled) return;
+      const metric = btn.getAttribute('data-dispo-metric');
+      const sku = btn.getAttribute('data-dispo-sku') || null;
+      if (metric) loadDispositionSnList(metric, sku, null).catch(err => { setLoading(false); alert('Error: ' + err.message); });
+    });
+    const dispoPeriodTable = document.getElementById('dispo-period-table');
+    if (dispoPeriodTable) dispoPeriodTable.addEventListener('click', (e) => {
+      const btn = e.target?.closest?.('button[data-dispo-metric][data-dispo-segment="period"]');
+      if (!btn || btn.disabled) return;
+      const metric = btn.getAttribute('data-dispo-metric');
+      const period = btn.getAttribute('data-dispo-period') || null;
+      if (metric) loadDispositionSnList(metric, null, period).catch(err => { setLoading(false); alert('Error: ' + err.message); });
+    });
+    const dispoTraySkuTable = document.getElementById('dispo-tray-sku-table');
+    if (dispoTraySkuTable) dispoTraySkuTable.addEventListener('click', (e) => {
+      const btn = e.target?.closest?.('button[data-dispo-metric][data-dispo-segment="tray_sku"]');
+      if (!btn || btn.disabled) return;
+      const metric = btn.getAttribute('data-dispo-metric');
+      const sku = btn.getAttribute('data-dispo-sku') || null;
+      if (metric) loadDispositionSnList(metric, sku, null).catch(err => { setLoading(false); alert('Error: ' + err.message); });
+    });
+    document.querySelectorAll('.dispo-agg-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const agg = btn.getAttribute('data-dispo-agg');
+        if (!agg) return;
+        dispoAggregation = agg;
+        document.querySelectorAll('.dispo-agg-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        loadDispositionPanel().catch(() => {});
+      });
+    });
+    const closeDispoSnModalEl = document.getElementById('close-dispo-sn-modal');
+    if (closeDispoSnModalEl) closeDispoSnModalEl.addEventListener('click', closeDispoSnModal);
+    const dispoSnModalEl = document.getElementById('dispo-sn-modal');
+    if (dispoSnModalEl) dispoSnModalEl.addEventListener('click', (e) => { if (e.target.id === 'dispo-sn-modal') closeDispoSnModal(); });
+  } catch (e) {
+    console.error('Error setting disposition listeners:', e);
+  }
+
+   safeAddListener('manual-scan', 'click', () => {
      runQuery({forceScan: true}).catch(err => {
        console.error(err);
        setLoading(false);
@@ -1616,7 +2626,7 @@
      });
    });
 
-   document.getElementById('clear-cache').addEventListener('click', async () => {
+   safeAddListener('clear-cache', 'click', async () => {
      try {
        if (!confirm('Clear cache will delete local analytics cache and rescan from scratch. Continue?')) return;
        setLoading(true, 'Clearing cache...');
@@ -1642,24 +2652,30 @@
       alert('Error: ' + err.message);
     });
   };
-  document.getElementById('agg-daily').addEventListener('click', () => onAggClick('daily'));
-  document.getElementById('agg-weekly').addEventListener('click', () => onAggClick('weekly'));
-  document.getElementById('agg-monthly').addEventListener('click', () => onAggClick('monthly'));
+  try {
+    const aggDaily = document.getElementById('agg-daily');
+    const aggWeekly = document.getElementById('agg-weekly');
+    const aggMonthly = document.getElementById('agg-monthly');
+    if (aggDaily) aggDaily.addEventListener('click', () => onAggClick('daily'));
+    if (aggWeekly) aggWeekly.addEventListener('click', () => onAggClick('weekly'));
+    if (aggMonthly) aggMonthly.addEventListener('click', () => onAggClick('monthly'));
+  } catch (e) {
+    console.error('Error setting aggregation listeners:', e);
+  }
 
-   // Set default dates (last 7 days)
-  const now = new Date();
-  const lastWeek = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-  document.getElementById('start-date').value = fmtDateCA(lastWeek);
-  document.getElementById('end-date').value = fmtDateCA(now);
-   document.getElementById('start-time').value = '00:00';
-   document.getElementById('end-time').value = '23:59';
-  updateRangeNotes();
+   // Set default dates (last 7 days) - MOVED TO INIT BLOCK BELOW
 
   // Live update range notes when user edits range inputs
-  ['start-date','end-date','start-time','end-time'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.addEventListener('change', updateRangeNotes);
-  });
+  try {
+    ['start-date','end-date','start-time','end-time'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && typeof updateRangeNotes === 'function') {
+        el.addEventListener('change', updateRangeNotes);
+      }
+    });
+  } catch (e) {
+    console.error('Error setting range input listeners:', e);
+  }
 
    // Element SDK integration
    async function onConfigChange(newConfig) {
@@ -1709,6 +2725,9 @@
        document.getElementById('cache-data-coverage').textContent = fmtRange(c.min_ca_ms, c.max_ca_ms);
        document.getElementById('cache-last-scan').textContent = c.last_scan_ca_ms ? fmtDateTimeCAFromMs(c.last_scan_ca_ms) : 'unknown';
      } catch (e) {}
+    try {
+      _applyBonepileStatus((data && data.bonepile) ? data.bonepile : null);
+    } catch (e) {}
    }
 
    function startStatusStream() {
@@ -1729,9 +2748,50 @@
    }
 
    // Init (no auto-polling; status updates come from SSE)
-   refreshCacheCoverage(); // initial fill
-   startStatusStream();
-   startCountdownLoop();
+   // Wrap in try-catch to prevent silent crashes
+   try {
+     // Ensure default dates are ALWAYS set before first query (so runQuery has valid payload)
+     (function setDefaultRange() {
+       try {
+         const startEl = document.getElementById('start-date');
+         const endEl = document.getElementById('end-date');
+         const startTimeEl = document.getElementById('start-time');
+         const endTimeEl = document.getElementById('end-time');
+         if (!startEl || !endEl) {
+           console.warn('Date inputs not found, retrying...');
+           setTimeout(setDefaultRange, 100);
+           return;
+         }
+         const now = new Date();
+         const lastWeek = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+         if (!startEl.value) startEl.value = fmtDateCA(lastWeek);
+         if (!endEl.value) endEl.value = fmtDateCA(now);
+         if (startTimeEl && !startTimeEl.value) startTimeEl.value = '00:00';
+         if (endTimeEl && !endTimeEl.value) endTimeEl.value = '23:59';
+         if (typeof updateRangeNotes === 'function') updateRangeNotes();
+       } catch (e) {
+         console.error('Error setting default range:', e);
+       }
+     })();
+     
+     refreshCacheCoverage().catch(e => console.error('refreshCacheCoverage error:', e));
+     startStatusStream();
+     startCountdownLoop();
+     
+     // Small delay to ensure DOM is ready
+     setTimeout(() => {
+       runQuery().catch(err => {
+         console.error('runQuery error:', err);
+         setLoading(false);
+         setApiStatus((err && err.message) ? ('Error: ' + err.message) : 'Load failed', 'err');
+         refreshCacheCoverage().catch(() => {});
+       });
+       loadDispositionPanel().catch(e => console.error('loadDispositionPanel error:', e));
+     }, 50);
+   } catch (e) {
+      console.error('Init error:', e);
+      setApiStatus('Init failed: ' + (e.message || e), 'err');
+    }
  </script>
 </body>
 </html>
