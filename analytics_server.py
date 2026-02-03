@@ -42,8 +42,11 @@ STATE_PATH = os.path.join(ANALYTICS_CACHE_DIR, "raw_state.json")
 CA_TZ = pytz.timezone("America/Los_Angeles")
 TW_TZ = pytz.timezone("Asia/Taipei")
 
-AUTO_SCAN_EVERY_SECONDS = 5 * 60
-AUTO_SCAN_OVERLAP_MINUTES = 10
+AUTO_SCAN_EVERY_SECONDS = 10 * 60
+# Every cycle, rescan a trailing time window to catch late-arriving files.
+AUTO_SCAN_WINDOW_MINUTES = 60
+# Full-day rescan schedule (CA local time).
+FULL_DAY_RESCAN_HOURS = [8, 12, 15]
 RETENTION_DAYS = 90
 
 # IMPORTANT:
@@ -109,6 +112,32 @@ def parse_timestamp_from_filename(filename: str) -> Optional[datetime]:
             return None
         dt_naive = datetime.strptime(f"{m.group(1)}T{m.group(2)}", "%Y%m%dT%H%M%S")
         return CA_TZ.localize(dt_naive)
+    except Exception:
+        return None
+
+
+def _parse_ca_input_datetime(s: str, *, is_end: bool) -> Optional[datetime]:
+    """
+    Parse user-provided datetime string in CA timezone.
+    Accepts:
+      - YYYY-MM-DD HH:MM
+      - YYYY-MM-DD HH:MM:SS
+
+    For end times with only minute precision, treat as inclusive of that minute
+    by setting seconds to 59.
+    """
+    if not s:
+        return None
+    s = str(s).strip()
+    try:
+        if re.search(r"\d:\d\d:\d\d$", s):
+            dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+            return CA_TZ.localize(dt)
+        dt = datetime.strptime(s, "%Y-%m-%d %H:%M")
+        dt_ca = CA_TZ.localize(dt)
+        if is_end:
+            dt_ca = dt_ca + timedelta(seconds=59)
+        return dt_ca
     except Exception:
         return None
 
@@ -439,6 +468,8 @@ class RawState:
     min_path: Optional[str] = None
     max_path: Optional[str] = None
     last_scan_ca_ms: Optional[int] = None
+    # Record full-day rescan runs by hour -> YYYY-MM-DD (CA) to avoid repeating after restarts.
+    full_day_runs: Optional[Dict[str, str]] = None
 
     @staticmethod
     def load() -> "RawState":
@@ -455,6 +486,7 @@ class RawState:
                 min_path=data.get("min_path"),
                 max_path=data.get("max_path"),
                 last_scan_ca_ms=data.get("last_scan_ca_ms"),
+                full_day_runs=data.get("full_day_runs") if isinstance(data.get("full_day_runs"), dict) else None,
             )
         except Exception:
             return RawState()
@@ -469,6 +501,7 @@ class RawState:
             "min_path": self.min_path,
             "max_path": self.max_path,
             "last_scan_ca_ms": self.last_scan_ca_ms,
+            "full_day_runs": self.full_day_runs or None,
         }
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -1455,11 +1488,10 @@ def api_scan():
     end_dt = payload.get("end_datetime")
     if not start_dt or not end_dt:
         return jsonify({"error": "start_datetime and end_datetime required"}), 400
-    try:
-        start_ca = CA_TZ.localize(datetime.strptime(start_dt, "%Y-%m-%d %H:%M"))
-        end_ca = CA_TZ.localize(datetime.strptime(end_dt, "%Y-%m-%d %H:%M"))
-    except Exception:
-        return jsonify({"error": "datetime format must be YYYY-MM-DD HH:MM"}), 400
+    start_ca = _parse_ca_input_datetime(start_dt, is_end=False)
+    end_ca = _parse_ca_input_datetime(end_dt, is_end=True)
+    if not start_ca or not end_ca:
+        return jsonify({"error": "datetime format must be YYYY-MM-DD HH:MM (optional :SS)"}), 400
     # Clamp end to now so manual scan doesn't "reserve" future coverage.
     now_ca = datetime.now(CA_TZ).replace(microsecond=0)
     if end_ca > now_ca:
@@ -1485,11 +1517,10 @@ def api_query():
 
     if not start_dt or not end_dt:
         return jsonify({"error": "start_datetime and end_datetime required"}), 400
-    try:
-        start_ca = CA_TZ.localize(datetime.strptime(start_dt, "%Y-%m-%d %H:%M"))
-        end_ca = CA_TZ.localize(datetime.strptime(end_dt, "%Y-%m-%d %H:%M"))
-    except Exception:
-        return jsonify({"error": "datetime format must be YYYY-MM-DD HH:MM"}), 400
+    start_ca = _parse_ca_input_datetime(start_dt, is_end=False)
+    end_ca = _parse_ca_input_datetime(end_dt, is_end=True)
+    if not start_ca or not end_ca:
+        return jsonify({"error": "datetime format must be YYYY-MM-DD HH:MM (optional :SS)"}), 400
     # Clamp end to now so cache/coverage logic stays truthful.
     now_ca = datetime.now(CA_TZ).replace(microsecond=0)
     if end_ca > now_ca:
@@ -1574,11 +1605,10 @@ def _parse_range_from_payload(payload: Dict[str, Any]) -> Tuple[Optional[Respons
     end_dt = payload.get("end_datetime")
     if not start_dt or not end_dt:
         return jsonify({"error": "start_datetime and end_datetime required"}), None, None
-    try:
-        start_ca = CA_TZ.localize(datetime.strptime(start_dt, "%Y-%m-%d %H:%M"))
-        end_ca = CA_TZ.localize(datetime.strptime(end_dt, "%Y-%m-%d %H:%M"))
-    except Exception:
-        return jsonify({"error": "datetime format must be YYYY-MM-DD HH:MM"}), None, None
+    start_ca = _parse_ca_input_datetime(start_dt, is_end=False)
+    end_ca = _parse_ca_input_datetime(end_dt, is_end=True)
+    if not start_ca or not end_ca:
+        return jsonify({"error": "datetime format must be YYYY-MM-DD HH:MM (optional :SS)"}), None, None
 
     now_ca = datetime.now(CA_TZ).replace(microsecond=0)
     if end_ca > now_ca:
@@ -1816,11 +1846,10 @@ def api_sn_list():
     if not start_dt or not end_dt:
         return jsonify({"error": "start_datetime and end_datetime required"}), 400
 
-    try:
-        start_ca = CA_TZ.localize(datetime.strptime(start_dt, "%Y-%m-%d %H:%M"))
-        end_ca = CA_TZ.localize(datetime.strptime(end_dt, "%Y-%m-%d %H:%M"))
-    except Exception:
-        return jsonify({"error": "datetime format must be YYYY-MM-DD HH:MM"}), 400
+    start_ca = _parse_ca_input_datetime(start_dt, is_end=False)
+    end_ca = _parse_ca_input_datetime(end_dt, is_end=True)
+    if not start_ca or not end_ca:
+        return jsonify({"error": "datetime format must be YYYY-MM-DD HH:MM (optional :SS)"}), 400
 
     now_ca = datetime.now(CA_TZ).replace(microsecond=0)
     if end_ca > now_ca:
@@ -1887,17 +1916,27 @@ def auto_scan_loop():
     while True:
         loop_started = time.time()
         try:
-            now_ca = datetime.now(CA_TZ)
-            data_min_ca_ms, data_max_ca_ms = get_db_data_range_ca_ms()
-            if data_max_ca_ms is None:
-                # Seed: scan the last 2 hours
-                start_ca = now_ca - timedelta(hours=2)
-                end_ca = now_ca
-            else:
-                end_ca = now_ca
-                last_max = datetime.fromtimestamp(int(data_max_ca_ms) / 1000, CA_TZ)
-                start_ca = last_max - timedelta(minutes=AUTO_SCAN_OVERLAP_MINUTES)
-            ensure_coverage(start_ca, end_ca)
+            now_ca = datetime.now(CA_TZ).replace(microsecond=0)
+
+            # Full-day CA rescan at scheduled hours (best-effort).
+            # This helps recover from network glitches or late file appearance beyond the window scan.
+            with scan_lock:
+                state = RawState.load()
+                if state.full_day_runs is None:
+                    state.full_day_runs = {}
+                today = now_ca.strftime("%Y-%m-%d")
+                day_start = now_ca.replace(hour=0, minute=0, second=0, microsecond=0)
+                for h in FULL_DAY_RESCAN_HOURS:
+                    key = str(int(h))
+                    if now_ca.hour >= int(h) and state.full_day_runs.get(key) != today:
+                        # Scan from start of CA day up to now (do not scan future).
+                        scan_range(day_start, now_ca, state)
+                        state.full_day_runs[key] = today
+                        state.save()
+
+                # Trailing window scan (CA): rescan last N minutes each cycle.
+                start_ca = now_ca - timedelta(minutes=AUTO_SCAN_WINDOW_MINUTES)
+                scan_range(start_ca, now_ca, state)
 
             # Retention cleanup (best-effort)
             if (loop_started - last_cleanup_time) >= (12 * 60 * 60):

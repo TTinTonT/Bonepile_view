@@ -379,7 +379,7 @@
        <div class="grid grid-cols-2 gap-3">
         <div><label for="start-date" class="block text-xs font-semibold mb-2" style="color: var(--color-muted);">Date</label> <input type="date" id="start-date" class="input-field w-full">
         </div>
-        <div><label for="start-hour" class="block text-xs font-semibold mb-2" style="color: var(--color-muted);">Hour (24h)</label> <select id="start-hour" class="input-field w-full font-mono"> <option value="00" selected>00:00</option><option value="01">01:00</option><option value="02">02:00</option><option value="03">03:00</option> <option value="04">04:00</option><option value="05">05:00</option><option value="06">06:00</option><option value="07">07:00</option> <option value="08">08:00</option><option value="09">09:00</option><option value="10">10:00</option><option value="11">11:00</option> <option value="12">12:00</option><option value="13">13:00</option><option value="14">14:00</option><option value="15">15:00</option> <option value="16">16:00</option><option value="17">17:00</option><option value="18">18:00</option><option value="19">19:00</option> <option value="20">20:00</option><option value="21">21:00</option><option value="22">22:00</option><option value="23">23:00</option> </select>
+        <div><label for="start-time" class="block text-xs font-semibold mb-2" style="color: var(--color-muted);">Time (24h)</label> <input type="time" id="start-time" step="60" class="input-field w-full font-mono" value="00:00">
         </div>
        </div>
       </div><!-- End Time -->
@@ -387,7 +387,7 @@
        <div class="grid grid-cols-2 gap-3">
         <div><label for="end-date" class="block text-xs font-semibold mb-2" style="color: var(--color-muted);">Date</label> <input type="date" id="end-date" class="input-field w-full">
         </div>
-        <div><label for="end-hour" class="block text-xs font-semibold mb-2" style="color: var(--color-muted);">Hour (24h)</label> <select id="end-hour" class="input-field w-full font-mono"> <option value="00">00:00</option><option value="01">01:00</option><option value="02">02:00</option><option value="03">03:00</option> <option value="04">04:00</option><option value="05">05:00</option><option value="06">06:00</option><option value="07">07:00</option> <option value="08">08:00</option><option value="09">09:00</option><option value="10">10:00</option><option value="11">11:00</option> <option value="12">12:00</option><option value="13">13:00</option><option value="14">14:00</option><option value="15">15:00</option> <option value="16">16:00</option><option value="17">17:00</option><option value="18">18:00</option><option value="19">19:00</option> <option value="20">20:00</option><option value="21">21:00</option><option value="22">22:00</option><option value="23" selected>23:00</option> </select>
+        <div><label for="end-time" class="block text-xs font-semibold mb-2" style="color: var(--color-muted);">Time (24h)</label> <input type="time" id="end-time" step="60" class="input-field w-full font-mono" value="23:59">
         </div>
        </div>
       </div>
@@ -628,13 +628,11 @@
    function getRangePayload() {
      const startDate = document.getElementById('start-date').value;
      const endDate = document.getElementById('end-date').value;
-     const startHour = document.getElementById('start-hour').value;
-     const endHour = document.getElementById('end-hour').value;
+    const startTime = document.getElementById('start-time').value || '00:00';
+    const endTime = document.getElementById('end-time').value || '23:59';
      return {
-       start_datetime: `${startDate} ${startHour}:00`,
-       // Treat end hour as inclusive (cover the full hour).
-       // Example: endHour=23 => include up to 23:59.
-       end_datetime: `${endDate} ${endHour}:59`,
+      start_datetime: `${startDate} ${startTime}`,
+      end_datetime: `${endDate} ${endTime}`,
        aggregation
      };
    }
@@ -858,8 +856,9 @@
    lastWeek.setDate(lastWeek.getDate() - 7);
    document.getElementById('start-date').value = lastWeek.toISOString().split('T')[0];
    document.getElementById('end-date').value = today.toISOString().split('T')[0];
-   document.getElementById('start-hour').value = '00';
-   document.getElementById('end-hour').value = '23';
+  document.getElementById('start-time').value = '00:00';
+  document.getElementById('end-time').value = '23:59';
+  updateRangeNotes();
 
    // Element SDK integration
    async function onConfigChange(newConfig) {
