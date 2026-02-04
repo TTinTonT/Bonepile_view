@@ -1198,6 +1198,7 @@
           <div class="flex items-center gap-2">
             <span class="bp-badge" id="bp-parse-badge">Idle</span>
             <button class="bp-mini" id="bp-refresh" type="button">Refresh</button>
+            <button class="bp-mini" id="bp-clear-cache" type="button" style="background: var(--color-danger); color: white;">Clear Cache</button>
           </div>
         </div>
         <div class="mt-3 text-xs" style="color: var(--color-muted);" id="bp-ignored-line"></div>
@@ -2390,6 +2391,24 @@
    }
    const bpRefresh = document.getElementById('bp-refresh');
    if (bpRefresh) bpRefresh.addEventListener('click', () => refreshBonepilePanel().catch(() => {}));
+   const bpClearCache = document.getElementById('bp-clear-cache');
+   if (bpClearCache) bpClearCache.addEventListener('click', async () => {
+     try {
+       if (!confirm('Clear cache will delete local analytics cache and uploaded bonepile file. Continue?')) return;
+       setLoading(true, 'Clearing cache...');
+       const res = await fetch('/api/clear-cache', { method: 'POST' });
+       const data = await res.json();
+       if (data.error) throw new Error(data.error);
+       await refreshCacheCoverage();
+       await refreshBonepilePanel();
+       setLoading(false);
+       alert('Cache cleared. Upload a new bonepile file and run Manual Scan or Apply Filter to rebuild.');
+     } catch (err) {
+       console.error(err);
+       setLoading(false);
+       alert('Error: ' + (err?.message || err));
+     }
+   });
    const bpParseAll = document.getElementById('bp-parse-all');
    if (bpParseAll) bpParseAll.addEventListener('click', () => parseBonepile(null).catch(err => { setApiStatus('Error: ' + err.message, 'err'); alert(err.message); }));
    const bpSheets = document.getElementById('bp-sheets');
@@ -2738,6 +2757,17 @@
          try {
            const data = JSON.parse(evt.data);
            applyStatusFromPayload(data);
+           // When auto-scan completes, last_scan_ca_ms changes; auto-run Apply Filter to refresh data.
+           const lastScanMs = (data && data.cache) ? data.cache.last_scan_ca_ms : null;
+           if (window.__lastScanCaMsForAutoRefresh === undefined) {
+             window.__lastScanCaMsForAutoRefresh = lastScanMs;
+             return;
+           }
+           if (lastScanMs != null && lastScanMs !== window.__lastScanCaMsForAutoRefresh) {
+             window.__lastScanCaMsForAutoRefresh = lastScanMs;
+             runQuery().catch(function() {});
+             loadDispositionPanel().catch(function() {});
+           }
          } catch (e) {}
        });
        es.addEventListener('error', () => {

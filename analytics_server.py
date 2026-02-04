@@ -53,11 +53,9 @@ BONEPILE_REQUIRED_FIELDS = ["sn", "nv_disposition", "status", "pic", "igs_action
 CA_TZ = pytz.timezone("America/Los_Angeles")
 TW_TZ = pytz.timezone("Asia/Taipei")
 
-AUTO_SCAN_EVERY_SECONDS = 10 * 60
-# Every cycle, rescan a trailing time window to catch late-arriving files.
-AUTO_SCAN_WINDOW_MINUTES = 60
-# Full-day rescan schedule (CA local time).
-FULL_DAY_RESCAN_HOURS = [8, 12, 15]
+AUTO_SCAN_EVERY_SECONDS = 60  # Auto-scan every 1 minute
+# Each auto-scan: refresh last N minutes (delete cache in that window, then rescan) so data is always fresh.
+REFRESH_WINDOW_MINUTES = 180  # 3 hours
 RETENTION_DAYS = 90
 
 # IMPORTANT:
@@ -1732,6 +1730,11 @@ def api_clear_cache():
                 os.remove(STATE_PATH)
         except Exception:
             pass
+        try:
+            if os.path.exists(BONEPILE_UPLOAD_PATH):
+                os.remove(BONEPILE_UPLOAD_PATH)
+        except Exception:
+            pass
 
         # Force re-init on next access
         db_initialized = False
@@ -2354,7 +2357,7 @@ def compute_disposition_stats(aggregation: str = "daily", start_ca_ms: Optional[
         return {k: r[k] for k in r.keys()} if hasattr(r, "keys") else dict(r)
 
     # Filter rows to only include those whose disposition date (mm/dd) falls within the date range
-    # This ensures Summary and breakdown by period are consistent (both based on disposition date, not just updated_at)
+    # STRICT: Only count rows that have mm/dd in nv_disposition or igs_action (no fallback to updated_at)
     filtered_rows_for_summary = []
     if start_ca_ms is not None and end_ca_ms is not None:
         try:
@@ -2362,64 +2365,141 @@ def compute_disposition_stats(aggregation: str = "daily", start_ca_ms: Optional[
             end_d = datetime.fromtimestamp(end_ca_ms / 1000.0, tz=CA_TZ).date()
             for r in rows:
                 rd = _row_dict(r)
-                period = _disposition_period_from_row(rd, aggregation)
-                if not period:
+                # Check for mm/dd ONLY from nv_disposition (not from igs_action, no fallback to updated_at)
+                mmdd_nv = _last_mmdd_only(rd.get("nv_disposition"))
+                if mmdd_nv is None:
+                    # No mm/dd found in nv_disposition - skip this row (strict mode)
                     continue
-                # Check if period falls within range
-                if aggregation == "daily" and re.match(r"^\d{4}-\d{2}-\d{2}$", period):
-                    pd = datetime.strptime(period, "%Y-%m-%d").date()
-                    if start_d <= pd <= end_d:
-                        filtered_rows_for_summary.append(r)
-                elif aggregation == "monthly" and re.match(r"^\d{4}-\d{2}$", period):
-                    pd = datetime.strptime(period + "-01", "%Y-%m-%d").date()
-                    if start_d <= pd <= end_d:
-                        filtered_rows_for_summary.append(r)
-                elif aggregation == "weekly" and "~" in period:
-                    part = period.split("~")[0]
-                    if re.match(r"^\d{4}-\d{2}-\d{2}$", part):
-                        pd = datetime.strptime(part, "%Y-%m-%d").date()
-                        if pd <= end_d and (pd + timedelta(days=6)) >= start_d:
-                            filtered_rows_for_summary.append(r)
+                mmdd = mmdd_nv
+                
+                # Get year from updated_at (needed to build full date)
+                ca_ms = rd.get("updated_at_ca_ms")
+                if ca_ms is None:
+                    continue
+                try:
+                    dt = datetime.fromtimestamp(ca_ms / 1000.0, tz=CA_TZ)
+                    year = dt.year
+                except Exception:
+                    continue
+                
+                # Build date from mm/dd and year
+                try:
+                    d = date(year, mmdd[0], mmdd[1])
+                except (ValueError, TypeError):
+                    continue
+                
+                # Calculate period date based on aggregation
+                if aggregation == "daily":
+                    period_date = d
+                elif aggregation == "monthly":
+                    period_date = date(year, mmdd[0], 1)
+                elif aggregation == "weekly":
+                    days_since_sunday = (d.weekday() + 1) % 7
+                    period_date = (d - timedelta(days=days_since_sunday)).date()
                 else:
-                    # Fallback: include if period matches any format
-                    filtered_rows_for_summary.append(r)
+                    continue
+                
+                # Check if period falls within filter range
+                if aggregation == "daily":
+                    if start_d <= period_date <= end_d:
+                        filtered_rows_for_summary.append(r)
+                elif aggregation == "monthly":
+                    if start_d <= period_date <= end_d:
+                        filtered_rows_for_summary.append(r)
+                elif aggregation == "weekly":
+                    week_end = period_date + timedelta(days=6)
+                    if period_date <= end_d and week_end >= start_d:
+                        filtered_rows_for_summary.append(r)
         except Exception:
             # If filtering fails, use all rows (fallback)
             filtered_rows_for_summary = rows
     else:
-        # No date range filter, use all rows
-        filtered_rows_for_summary = rows
+        # No date range filter, but still only include rows with mm/dd from disposition/action
+        for r in rows:
+            rd = _row_dict(r)
+            mmdd_nv = _last_mmdd_only(rd.get("nv_disposition"))
+            mmdd_igs = _last_mmdd_only(rd.get("igs_action"))
+            if mmdd_nv is not None or mmdd_igs is not None:
+                filtered_rows_for_summary.append(r)
+
+    # Track unique SNs per period/sku to count trays/SNs, not disposition counts
+    sn_seen_in_period: Dict[str, set] = {}  # {period: set of SNs}
+    sn_seen_in_sku: Dict[str, set] = {}  # {sku: set of SNs}
+    sn_seen_total: set = set()  # All SNs seen (for summary)
+    sn_waiting_in_period: Dict[str, set] = {}  # {period: set of waiting SNs}
+    sn_waiting_in_sku: Dict[str, set] = {}  # {sku: set of waiting SNs}
+    sn_waiting_total: set = set()  # All waiting SNs (for summary)
 
     for r in filtered_rows_for_summary:
         rd = _row_dict(r)
-        nv_count = int(r["nv_dispo_count"] or 0)
-        total_dispo += nv_count
+        sn = (r["sn"] or "").strip()
+        if not sn:
+            continue
+        
         status_ok = _norm(r["status"]) == "FAIL"
         pic_ok = _norm(r["pic"]) == "IGS"
         is_waiting = status_ok and pic_ok
-        if is_waiting:
-            waiting_count += 1
 
         sku = (r["nvpn"] or "").strip() or "Unknown"
-        by_sku.setdefault(sku, {"sku": sku, "total": 0, "waiting_igs": 0, "complete": 0})
-        by_sku[sku]["total"] += nv_count
-        if is_waiting:
-            by_sku[sku]["waiting_igs"] = by_sku[sku].get("waiting_igs", 0) + 1
-
-        period = _disposition_period_from_row(rd, aggregation)
-        if period:
-            by_period.setdefault(period, {"period": period, "total": 0, "waiting_igs": 0, "complete": 0})
-            by_period[period]["total"] += nv_count
-            if is_waiting:
-                by_period[period]["waiting_igs"] = by_period[period].get("waiting_igs", 0) + 1
+        
+        # Calculate period from mm/dd ONLY in nv_disposition (not igs_action, no fallback to updated_at)
+        mmdd_nv = _last_mmdd_only(rd.get("nv_disposition"))
+        if mmdd_nv is not None:
+            mmdd = mmdd_nv
+            ca_ms = rd.get("updated_at_ca_ms")
+            if ca_ms is not None:
+                try:
+                    dt = datetime.fromtimestamp(ca_ms / 1000.0, tz=CA_TZ)
+                    year = dt.year
+                    d = date(year, mmdd[0], mmdd[1])
+                    if aggregation == "monthly":
+                        period = d.strftime("%Y-%m")
+                    elif aggregation == "weekly":
+                        days_since_sunday = (d.weekday() + 1) % 7
+                        week_start = d - timedelta(days=days_since_sunday)
+                        week_end = week_start + timedelta(days=6)
+                        period = f"{week_start.strftime('%Y-%m-%d')}~{week_end.strftime('%Y-%m-%d')}"
+                    else:
+                        period = d.strftime("%Y-%m-%d")
+                    
+                    # Count unique SN per period
+                    if sn not in sn_seen_in_period.get(period, set()):
+                        sn_seen_in_period.setdefault(period, set()).add(sn)
+                        by_period.setdefault(period, {"period": period, "total": 0, "waiting_igs": 0, "complete": 0})
+                        by_period[period]["total"] += 1
+                        if is_waiting:
+                            sn_waiting_in_period.setdefault(period, set()).add(sn)
+                            by_period[period]["waiting_igs"] += 1
+                    
+                    # Count unique SN per SKU
+                    if sn not in sn_seen_in_sku.get(sku, set()):
+                        sn_seen_in_sku.setdefault(sku, set()).add(sn)
+                        by_sku.setdefault(sku, {"sku": sku, "total": 0, "waiting_igs": 0, "complete": 0})
+                        by_sku[sku]["total"] += 1
+                        if is_waiting:
+                            sn_waiting_in_sku.setdefault(sku, set()).add(sn)
+                            by_sku[sku]["waiting_igs"] += 1
+                    
+                    # Count unique SN for summary
+                    if sn not in sn_seen_total:
+                        sn_seen_total.add(sn)
+                        total_dispo += 1
+                        if is_waiting:
+                            sn_waiting_total.add(sn)
+                            waiting_count += 1
+                except (ValueError, TypeError):
+                    pass
 
     for sku, d in by_sku.items():
         d["complete"] = d["total"] - d.get("waiting_igs", 0)
     for period, d in by_period.items():
         d["complete"] = d["total"] - d.get("waiting_igs", 0)
 
-    complete_total = total_dispo - waiting_count
-    summary = {"total": total_dispo, "waiting_igs": waiting_count, "complete": complete_total}
+    # Summary should match the sum of breakdown by period (not independent count)
+    summary_total = sum(d["total"] for d in by_period.values())
+    summary_waiting = sum(d["waiting_igs"] for d in by_period.values())
+    summary_complete = sum(d["complete"] for d in by_period.values())
+    summary = {"total": summary_total, "waiting_igs": summary_waiting, "complete": summary_complete}
 
     # Count unique trays (SNs) in BP and trays with ALL PASS status
     # IMPORTANT: Count from ALL rows in bonepile_entries (not filtered by date range)
@@ -2930,26 +3010,25 @@ def auto_scan_loop():
         loop_started = time.time()
         try:
             now_ca = datetime.now(CA_TZ).replace(microsecond=0)
+            # Refresh window: last N minutes (CA). We delete cache in this range then rescan so data is always fresh.
+            start_ca = now_ca - timedelta(minutes=REFRESH_WINDOW_MINUTES)
+            cutoff_ms = utc_ms(start_ca)
 
-            # Full-day CA rescan at scheduled hours (best-effort).
-            # This helps recover from network glitches or late file appearance beyond the window scan.
             with scan_lock:
                 state = RawState.load()
-                if state.full_day_runs is None:
-                    state.full_day_runs = {}
-                today = now_ca.strftime("%Y-%m-%d")
-                day_start = now_ca.replace(hour=0, minute=0, second=0, microsecond=0)
-                for h in FULL_DAY_RESCAN_HOURS:
-                    key = str(int(h))
-                    if now_ca.hour >= int(h) and state.full_day_runs.get(key) != today:
-                        # Scan from start of CA day up to now (do not scan future).
-                        scan_range(day_start, now_ca, state)
-                        state.full_day_runs[key] = today
-                        state.save()
-
-                # Trailing window scan (CA): rescan last N minutes each cycle.
-                start_ca = now_ca - timedelta(minutes=AUTO_SCAN_WINDOW_MINUTES)
-                scan_range(start_ca, now_ca, state)
+                ensure_db_ready()
+                # Delete raw_entries in the refresh window so rescan accepts all data in that window (fresh).
+                try:
+                    conn = connect_db()
+                    try:
+                        conn.execute("DELETE FROM raw_entries WHERE ca_ms >= ?", (cutoff_ms,))
+                        conn.commit()
+                    finally:
+                        conn.close()
+                    # Rescan last REFRESH_WINDOW_MINUTES and insert; scan_range updates state from DB after insert.
+                    scan_range(start_ca, now_ca, state)
+                except Exception:
+                    pass
 
             # Retention cleanup (best-effort)
             if (loop_started - last_cleanup_time) >= (12 * 60 * 60):
