@@ -50,6 +50,11 @@ BONEPILE_UPLOAD_PATH = os.path.join(ANALYTICS_CACHE_DIR, "bonepile_upload.xlsx")
 BONEPILE_ALLOWED_SHEETS = ["VR-TS1", "TS2-SKU002", "TS2-SKU010"]
 BONEPILE_REQUIRED_FIELDS = ["sn", "nv_disposition", "status", "pic", "igs_action", "igs_status"]
 
+# Excel export templates (formatting preserved in exported XLSX)
+TEMPLATES_DIR = os.path.join(APP_DIR, "templates")
+SKU_SUMMARY_TEMPLATE_PATH = os.path.join(TEMPLATES_DIR, "SKU_Summary.xlsx")
+TRAY_SUMMARY_TEMPLATE_PATH = os.path.join(TEMPLATES_DIR, "Tray_Summary_Template.xlsx")
+
 CA_TZ = pytz.timezone("America/Los_Angeles")
 TW_TZ = pytz.timezone("Asia/Taipei")
 
@@ -2052,6 +2057,172 @@ def _csv_response(text: str, filename: str) -> Response:
     return resp
 
 
+def _xlsx_response(data: bytes, filename: str) -> Response:
+    resp = Response(data, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def _copy_cell_style(src_cell, tgt_cell):
+    """Copy font, fill, alignment, border, number_format from source cell to target cell."""
+    if src_cell.has_style:
+        tgt_cell.font = src_cell.font.copy()
+        tgt_cell.fill = src_cell.fill.copy()
+        tgt_cell.alignment = src_cell.alignment.copy()
+        tgt_cell.border = src_cell.border.copy()
+        tgt_cell.number_format = src_cell.number_format
+
+
+def _build_export_xlsx(
+    export_kind: str,
+    computed: Dict[str, Any],
+    start_s: str,
+    end_s: str,
+    start_ca: datetime,
+    end_ca: datetime,
+) -> Tuple[bytes, str]:
+    """
+    Build XLSX using templates; preserve template formatting.
+    export_kind: 'summary' | 'sku'
+    start_ca, end_ca: datetime objects for header text
+    Returns (xlsx_bytes, filename).
+    """
+    if openpyxl is None:
+        raise RuntimeError("openpyxl is not installed; cannot export XLSX")
+
+    # Format datetime for header: "YYYY-MM-DD HH:MM"
+    start_str = start_ca.strftime("%Y-%m-%d %H:%M")
+    end_str = end_ca.strftime("%Y-%m-%d %H:%M")
+    header_text = f"Testing from {start_str} to {end_str}"
+
+    if export_kind == "summary":
+        path = TRAY_SUMMARY_TEMPLATE_PATH
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"Tray Summary template not found: {path}")
+        wb = openpyxl.load_workbook(path)
+        ws = wb.active
+        # Template may have merged cells A1:D1, unmerge first if exists
+        merged_ranges = list(ws.merged_cells.ranges)
+        for mr in merged_ranges:
+            mr_str = str(mr)
+            # Unmerge if it overlaps with row 1 and includes column A
+            if 'A1' in mr_str or mr_str.startswith('A1:'):
+                ws.unmerge_cells(mr_str)
+        # Get fill color from A1 before clearing it
+        from openpyxl.styles import PatternFill
+        a1_cell = ws.cell(row=1, column=1)
+        a1_fill = a1_cell.fill.copy() if a1_cell.has_style and a1_cell.fill else None
+        # Clear fill from A1
+        if a1_cell.has_style:
+            a1_cell.fill = PatternFill()
+        # Fill from column B-D only, leave A1 empty
+        header_cell = ws.cell(row=1, column=2, value=header_text)
+        # Merge cells B1:D1 for header (A1 stays empty)
+        ws.merge_cells('B1:D1')
+        # Style header: bold, center alignment
+        from openpyxl.styles import Font, Alignment
+        header_cell.font = Font(bold=True, size=12)
+        header_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        # Apply fill color from A1 to header (B1:D1)
+        if a1_fill:
+            header_cell.fill = a1_fill
+        # Auto-adjust column width based on header text length
+        # Estimate: each character ~1.2 units, divide by 3 for B+C+D columns, add padding
+        text_length = len(header_text)
+        estimated_width = max(text_length * 1.2 / 3, 15)
+        for col in ['B', 'C', 'D']:
+            current_width = ws.column_dimensions[col].width if col in ws.column_dimensions and ws.column_dimensions[col].width else 0
+            ws.column_dimensions[col].width = max(current_width, estimated_width)
+        
+        s = computed["summary"]
+        # Template: row 2 = headers (BP, FRESH, TOTAL), row 3 = TOTAL/tested, row 4 = PASS, row 5 = FAIL
+        # Map: row 3 -> "tested", row 4 -> "pass", row 5 -> "fail"
+        ws.cell(row=3, column=1, value="TOTAL")  # Keep label as "TOTAL" in template
+        ws.cell(row=3, column=2, value=s["bp"].get("tested", 0))
+        ws.cell(row=3, column=3, value=s["fresh"].get("tested", 0))
+        ws.cell(row=3, column=4, value=s["total"].get("tested", 0))
+        ws.cell(row=4, column=1, value="PASS")
+        ws.cell(row=4, column=2, value=s["bp"].get("pass", 0))
+        ws.cell(row=4, column=3, value=s["fresh"].get("pass", 0))
+        ws.cell(row=4, column=4, value=s["total"].get("pass", 0))
+        ws.cell(row=5, column=1, value="FAIL")
+        ws.cell(row=5, column=2, value=s["bp"].get("fail", 0))
+        ws.cell(row=5, column=3, value=s["fresh"].get("fail", 0))
+        ws.cell(row=5, column=4, value=s["total"].get("fail", 0))
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return buf.read(), f"summary_{start_s}_to_{end_s}.xlsx"
+
+    if export_kind == "sku":
+        path = SKU_SUMMARY_TEMPLATE_PATH
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"SKU Summary template not found: {path}")
+        wb = openpyxl.load_workbook(path)
+        ws = wb.active
+        # Insert header row at the top
+        ws.insert_rows(1)
+        # Get fill color from A2 (original A1, now shifted down) before clearing it
+        from openpyxl.styles import PatternFill
+        a2_cell = ws.cell(row=2, column=1)
+        a2_fill = a2_cell.fill.copy() if a2_cell.has_style and a2_cell.fill else None
+        # Clear fill from A1 and A2
+        a1_cell = ws.cell(row=1, column=1)
+        if a1_cell.has_style:
+            a1_cell.fill = PatternFill()
+        if a2_cell.has_style:
+            a2_cell.fill = PatternFill()
+        # Fill from column B-D only, leave A1 empty
+        header_cell = ws.cell(row=1, column=2, value=header_text)
+        # Merge cells B1:D1 for header (A1 stays empty)
+        ws.merge_cells('B1:D1')
+        # Style header: bold, center alignment
+        from openpyxl.styles import Font, Alignment
+        header_cell.font = Font(bold=True, size=12)
+        header_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        # Apply fill color from A2 (original A1) to header (B1:D1)
+        if a2_fill:
+            header_cell.fill = a2_fill
+        # Auto-adjust column width based on header text length
+        # Estimate: each character ~1.2 units, divide by 3 for B+C+D columns, add padding
+        text_length = len(header_text)
+        estimated_width = max(text_length * 1.2 / 3, 15)
+        for col in ['B', 'C', 'D']:
+            current_width = ws.column_dimensions[col].width if col in ws.column_dimensions and ws.column_dimensions[col].width else 0
+            ws.column_dimensions[col].width = max(current_width, estimated_width)
+        
+        sku_rows = computed.get("sku_rows") or []
+        # Template: row 2 = header (SKU, TESTED, PASS, FAIL), data rows start at row 3
+        # (shifted down by 1 row due to header insertion)
+        # Ensure header is set
+        ws.cell(row=2, column=1, value="SKU")
+        ws.cell(row=2, column=2, value="TESTED")
+        ws.cell(row=2, column=3, value="PASS")
+        ws.cell(row=2, column=4, value="FAIL")
+        # Template has data rows 3-6 (4 rows). For additional SKUs beyond row 6, copy style from row 3
+        first_data_row = 3
+        template_last_data_row = 5
+        for i, r in enumerate(sku_rows):
+            row_num = first_data_row + i
+            ws.cell(row=row_num, column=1, value=r.get("sku") or "")
+            ws.cell(row=row_num, column=2, value=r.get("tested") or 0)
+            ws.cell(row=row_num, column=3, value=r.get("pass") or 0)
+            ws.cell(row=row_num, column=4, value=r.get("fail") or 0)
+            # Copy style from template data row (row 2) to new rows beyond template
+            if row_num > template_last_data_row:
+                for col in range(1, 5):
+                    src_cell = ws.cell(row=first_data_row, column=col)
+                    tgt_cell = ws.cell(row=row_num, column=col)
+                    _copy_cell_style(src_cell, tgt_cell)
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return buf.read(), f"sku_{start_s}_to_{end_s}.xlsx"
+
+    raise ValueError(f"Unsupported export_kind for XLSX: {export_kind}")
+
+
 def _excel_text_cell(value: Any) -> str:
     """
     Make CSV cells safer for Excel auto-parsing.
@@ -2322,184 +2493,196 @@ def _disposition_period_from_ca_ms(ca_ms: Optional[int], aggregation: str) -> st
 def compute_disposition_stats(aggregation: str = "daily", start_ca_ms: Optional[int] = None, end_ca_ms: Optional[int] = None) -> Dict[str, Any]:
     """
     Compute NV Disposition stats from bonepile_entries.
-    - Total dispositions = sum of nv_dispo_count (each mm/dd = 1 dispo).
-    - Waiting for IGS Action = count of rows where status=Fail, PIC=IGS (last dispo waiting).
-    - Complete = total - waiting (in row terms: complete = total_dispo_count - waiting_row_count).
+    
+    Logic:
+    1. Total Dispositions: Đếm SNs có NV disposition date (mm/dd cuối cùng) trong date range
+    2. Waiting IGS: Status=FAIL, PIC=IGS, mm/dd từ NV disposition cuối cùng trong date range
+    3. By Period:
+       - Total: Phân loại SNs theo mm/dd từ NV disposition cuối cùng = ngày của header period
+       - Waiting IGS: Phân loại SNs theo mm/dd từ IGS action cuối cùng = ngày của header period
+    
     Returns: summary { total, waiting_igs, complete }, by_sku [ { sku, total, waiting_igs, complete } ], by_period [ { period, total, waiting_igs, complete } ].
     """
     conn = connect_db()
     try:
-        query = "SELECT sn, nvpn, status, pic, nv_disposition, igs_action, nv_dispo_count, updated_at_ca_ms FROM bonepile_entries"
-        params = []
-        conditions = []
-        if start_ca_ms is not None:
-            conditions.append("updated_at_ca_ms >= ?")
-            params.append(start_ca_ms)
-        if end_ca_ms is not None:
-            conditions.append("updated_at_ca_ms <= ?")
-            params.append(end_ca_ms)
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-        query += ";"
-        rows = conn.execute(query, params).fetchall()
+        # Get ALL rows (no date filter on SQL level)
+        query = "SELECT sn, nvpn, status, pic, nv_disposition, igs_action, updated_at_ca_ms FROM bonepile_entries;"
+        rows = conn.execute(query).fetchall()
     finally:
         conn.close()
 
     def _norm(s: Any) -> str:
         return (str(s) if s is not None else "").strip().upper()
 
-    total_dispo = 0
-    waiting_count = 0
-    by_sku: Dict[str, Dict[str, Any]] = {}
-    by_period: Dict[str, Dict[str, Any]] = {}
-
     def _row_dict(r) -> Dict[str, Any]:
         return {k: r[k] for k in r.keys()} if hasattr(r, "keys") else dict(r)
 
-    # Filter rows to only include those whose disposition date (mm/dd) falls within the date range
-    # STRICT: Only count rows that have mm/dd in nv_disposition or igs_action (no fallback to updated_at)
-    filtered_rows_for_summary = []
     if start_ca_ms is not None and end_ca_ms is not None:
-        try:
-            start_d = datetime.fromtimestamp(start_ca_ms / 1000.0, tz=CA_TZ).date()
-            end_d = datetime.fromtimestamp(end_ca_ms / 1000.0, tz=CA_TZ).date()
-            for r in rows:
-                rd = _row_dict(r)
-                # Check for mm/dd ONLY from nv_disposition (not from igs_action, no fallback to updated_at)
-                mmdd_nv = _last_mmdd_only(rd.get("nv_disposition"))
-                if mmdd_nv is None:
-                    # No mm/dd found in nv_disposition - skip this row (strict mode)
-                    continue
-                mmdd = mmdd_nv
-                
-                # Get year from updated_at (needed to build full date)
-                ca_ms = rd.get("updated_at_ca_ms")
-                if ca_ms is None:
-                    continue
-                try:
-                    dt = datetime.fromtimestamp(ca_ms / 1000.0, tz=CA_TZ)
-                    year = dt.year
-                except Exception:
-                    continue
-                
-                # Build date from mm/dd and year
-                try:
-                    d = date(year, mmdd[0], mmdd[1])
-                except (ValueError, TypeError):
-                    continue
-                
-                # Calculate period date based on aggregation
-                if aggregation == "daily":
-                    period_date = d
-                elif aggregation == "monthly":
-                    period_date = date(year, mmdd[0], 1)
-                elif aggregation == "weekly":
-                    days_since_sunday = (d.weekday() + 1) % 7
-                    period_date = (d - timedelta(days=days_since_sunday)).date()
-                else:
-                    continue
-                
-                # Check if period falls within filter range
-                if aggregation == "daily":
-                    if start_d <= period_date <= end_d:
-                        filtered_rows_for_summary.append(r)
-                elif aggregation == "monthly":
-                    if start_d <= period_date <= end_d:
-                        filtered_rows_for_summary.append(r)
-                elif aggregation == "weekly":
-                    week_end = period_date + timedelta(days=6)
-                    if period_date <= end_d and week_end >= start_d:
-                        filtered_rows_for_summary.append(r)
-        except Exception:
-            # If filtering fails, use all rows (fallback)
-            filtered_rows_for_summary = rows
+        start_d = datetime.fromtimestamp(start_ca_ms / 1000.0, tz=CA_TZ).date()
+        end_d = datetime.fromtimestamp(end_ca_ms / 1000.0, tz=CA_TZ).date()
+        year = start_d.year  # Use year from date range
     else:
-        # No date range filter, but still only include rows with mm/dd from disposition/action
-        for r in rows:
-            rd = _row_dict(r)
-            mmdd_nv = _last_mmdd_only(rd.get("nv_disposition"))
-            mmdd_igs = _last_mmdd_only(rd.get("igs_action"))
-            if mmdd_nv is not None or mmdd_igs is not None:
-                filtered_rows_for_summary.append(r)
+        start_d = None
+        end_d = None
+        year = datetime.now(CA_TZ).year
 
-    # Track unique SNs per period/sku to count trays/SNs, not disposition counts
-    sn_seen_in_period: Dict[str, set] = {}  # {period: set of SNs}
-    sn_seen_in_sku: Dict[str, set] = {}  # {sku: set of SNs}
-    sn_seen_total: set = set()  # All SNs seen (for summary)
-    sn_waiting_in_period: Dict[str, set] = {}  # {period: set of waiting SNs}
-    sn_waiting_in_sku: Dict[str, set] = {}  # {sku: set of waiting SNs}
-    sn_waiting_total: set = set()  # All waiting SNs (for summary)
+    def _date_to_period(d: date) -> str:
+        if aggregation == "monthly":
+            return d.strftime("%Y-%m")
+        elif aggregation == "weekly":
+            days_since_sunday = (d.weekday() + 1) % 7
+            week_start = d - timedelta(days=days_since_sunday)
+            week_end = week_start + timedelta(days=6)
+            return f"{week_start.strftime('%Y-%m-%d')}~{week_end.strftime('%Y-%m-%d')}"
+        else:
+            return d.strftime("%Y-%m-%d")
 
-    for r in filtered_rows_for_summary:
+    # Per SN, keep latest row
+    sn_latest: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
         rd = _row_dict(r)
-        sn = (r["sn"] or "").strip()
+        sn = (rd.get("sn") or "").strip()
         if not sn:
             continue
+        ca_ms = rd.get("updated_at_ca_ms")
+        existing = sn_latest.get(sn)
+        if existing is None or (ca_ms or 0) > (existing.get("updated_at_ca_ms") or 0):
+            sn_latest[sn] = {
+                "row": r,
+                "rd": rd,
+                "updated_at_ca_ms": ca_ms,
+            }
+    
+    # Step 1: Count Total Dispositions - SNs có NV disposition date trong date range
+    total_sns: Dict[str, Dict[str, Any]] = {}
+    for sn, data in sn_latest.items():
+        rd = data["rd"]
+        nv_dispo_text = rd.get("nv_disposition")
+        if not nv_dispo_text:
+            continue
         
-        status_ok = _norm(r["status"]) == "FAIL"
-        pic_ok = _norm(r["pic"]) == "IGS"
-        is_waiting = status_ok and pic_ok
+        # Get mm/dd cuối cùng từ NV disposition
+        mmdd_nv = _last_mmdd_only(nv_dispo_text)
+        if mmdd_nv is None:
+            continue
+        
+        # Build date from mm/dd
+        try:
+            nv_date = date(year, mmdd_nv[0], mmdd_nv[1])
+            # If date seems too old, try next year
+            if start_d and nv_date < start_d - timedelta(days=60):
+                nv_date = date(year + 1, mmdd_nv[0], mmdd_nv[1])
+        except (ValueError, TypeError):
+            continue
+        
+        # Check if date is in range
+        if start_d is not None and end_d is not None:
+            if not (start_d <= nv_date <= end_d):
+                continue
+        
+        sku = (rd.get("nvpn") or "").strip() or "Unknown"
+        period = _date_to_period(nv_date)
+        
+        total_sns[sn] = {
+            "sku": sku,
+            "nv_date": nv_date,
+            "period": period,
+        }
 
-        sku = (r["nvpn"] or "").strip() or "Unknown"
+    # Step 2: Count Waiting IGS - SNs với Status=FAIL, PIC=IGS, mm/dd cuối cùng trong date range
+    waiting_sns: Dict[str, Dict[str, Any]] = {}
+    for sn, data in sn_latest.items():
+        r = data["row"]
+        rd = data["rd"]
         
-        # Calculate period from mm/dd ONLY in nv_disposition (not igs_action, no fallback to updated_at)
+        # Check Waiting IGS criteria: Status=FAIL, PIC=IGS
+        status_ok = _norm(rd.get("status")) == "FAIL"
+        pic_ok = _norm(rd.get("pic")) == "IGS"
+        if not (status_ok and pic_ok):
+            continue
+        
+        # Get mm/dd cuối cùng từ NV disposition
         mmdd_nv = _last_mmdd_only(rd.get("nv_disposition"))
-        if mmdd_nv is not None:
-            mmdd = mmdd_nv
-            ca_ms = rd.get("updated_at_ca_ms")
-            if ca_ms is not None:
-                try:
-                    dt = datetime.fromtimestamp(ca_ms / 1000.0, tz=CA_TZ)
-                    year = dt.year
-                    d = date(year, mmdd[0], mmdd[1])
-                    if aggregation == "monthly":
-                        period = d.strftime("%Y-%m")
-                    elif aggregation == "weekly":
-                        days_since_sunday = (d.weekday() + 1) % 7
-                        week_start = d - timedelta(days=days_since_sunday)
-                        week_end = week_start + timedelta(days=6)
-                        period = f"{week_start.strftime('%Y-%m-%d')}~{week_end.strftime('%Y-%m-%d')}"
-                    else:
-                        period = d.strftime("%Y-%m-%d")
-                    
-                    # Count unique SN per period
-                    if sn not in sn_seen_in_period.get(period, set()):
-                        sn_seen_in_period.setdefault(period, set()).add(sn)
-                        by_period.setdefault(period, {"period": period, "total": 0, "waiting_igs": 0, "complete": 0})
-                        by_period[period]["total"] += 1
-                        if is_waiting:
-                            sn_waiting_in_period.setdefault(period, set()).add(sn)
-                            by_period[period]["waiting_igs"] += 1
-                    
-                    # Count unique SN per SKU
-                    if sn not in sn_seen_in_sku.get(sku, set()):
-                        sn_seen_in_sku.setdefault(sku, set()).add(sn)
-                        by_sku.setdefault(sku, {"sku": sku, "total": 0, "waiting_igs": 0, "complete": 0})
-                        by_sku[sku]["total"] += 1
-                        if is_waiting:
-                            sn_waiting_in_sku.setdefault(sku, set()).add(sn)
-                            by_sku[sku]["waiting_igs"] += 1
-                    
-                    # Count unique SN for summary
-                    if sn not in sn_seen_total:
-                        sn_seen_total.add(sn)
-                        total_dispo += 1
-                        if is_waiting:
-                            sn_waiting_total.add(sn)
-                            waiting_count += 1
-                except (ValueError, TypeError):
-                    pass
+        if mmdd_nv is None:
+            continue
+        
+        # Build date from mm/dd
+        try:
+            nv_date = date(year, mmdd_nv[0], mmdd_nv[1])
+            # If date seems too old, try next year
+            if start_d and nv_date < start_d - timedelta(days=60):
+                nv_date = date(year + 1, mmdd_nv[0], mmdd_nv[1])
+        except (ValueError, TypeError):
+            continue
+        
+        # Check if date is in range
+        if start_d is not None and end_d is not None:
+            if not (start_d <= nv_date <= end_d):
+                continue
+        
+        # Get mm/dd từ IGS action cuối cùng (for period classification)
+        mmdd_igs = _last_mmdd_only(rd.get("igs_action"))
+        igs_date = None
+        if mmdd_igs is not None:
+            try:
+                igs_date = date(year, mmdd_igs[0], mmdd_igs[1])
+                if start_d and igs_date < start_d - timedelta(days=60):
+                    igs_date = date(year + 1, mmdd_igs[0], mmdd_igs[1])
+            except (ValueError, TypeError):
+                pass
+        
+        sku = (rd.get("nvpn") or "").strip() or "Unknown"
+        period_nv = _date_to_period(nv_date)
+        period_igs = _date_to_period(igs_date) if igs_date else None
+        
+        waiting_sns[sn] = {
+            "sku": sku,
+            "nv_date": nv_date,
+            "igs_date": igs_date,
+            "period_nv": period_nv,
+            "period_igs": period_igs,
+        }
 
+    # Step 3: Build by_period and by_sku
+    by_period: Dict[str, Dict[str, Any]] = {}
+    by_sku: Dict[str, Dict[str, Any]] = {}
+    
+    # Total dispositions by period (from SNs)
+    for sn, info in total_sns.items():
+        period = info["period"]
+        by_period.setdefault(period, {"period": period, "total": 0, "waiting_igs": 0, "complete": 0})
+        by_period[period]["total"] += 1
+        
+        sku = info["sku"]
+        by_sku.setdefault(sku, {"sku": sku, "total": 0, "waiting_igs": 0, "complete": 0})
+        by_sku[sku]["total"] += 1
+    
+    # Waiting IGS by period (from SNs)
+    for sn, info in waiting_sns.items():
+        waiting_period = info["period_igs"] if info["period_igs"] else info["period_nv"]
+        by_period.setdefault(waiting_period, {"period": waiting_period, "total": 0, "waiting_igs": 0, "complete": 0})
+        by_period[waiting_period]["waiting_igs"] += 1
+        
+        sku = info["sku"]
+        by_sku.setdefault(sku, {"sku": sku, "total": 0, "waiting_igs": 0, "complete": 0})
+        by_sku[sku]["waiting_igs"] += 1
+
+    # Calculate complete
     for sku, d in by_sku.items():
         d["complete"] = d["total"] - d.get("waiting_igs", 0)
     for period, d in by_period.items():
         d["complete"] = d["total"] - d.get("waiting_igs", 0)
 
-    # Summary should match the sum of breakdown by period (not independent count)
-    summary_total = sum(d["total"] for d in by_period.values())
-    summary_waiting = sum(d["waiting_igs"] for d in by_period.values())
-    summary_complete = sum(d["complete"] for d in by_period.values())
-    summary = {"total": summary_total, "waiting_igs": summary_waiting, "complete": summary_complete}
+    # Summary
+    summary_total = len(total_sns)
+    summary_waiting = len(waiting_sns)
+    summary_complete = summary_total - summary_waiting
+    
+    summary = {
+        "total": summary_total,
+        "waiting_igs": summary_waiting,
+        "complete": summary_complete
+    }
 
     # Count unique trays (SNs) in BP and trays with ALL PASS status
     # IMPORTANT: Count from ALL rows in bonepile_entries (not filtered by date range)
@@ -2586,26 +2769,9 @@ def compute_disposition_sn_list(
 ) -> List[Dict[str, Any]]:
     """
     Return list of { sn, last_nv_dispo, last_igs_action, nvpn, status, pic } for drill-down.
-    metric: total | waiting | complete
+    Uses same logic as compute_disposition_stats: find KPI SNs first, then filter by period/sku.
+    metric: total | waiting | complete | trays_bp | all_pass_trays
     """
-    conn = connect_db()
-    try:
-        query = "SELECT sheet, excel_row, sn, nvpn, status, pic, nv_disposition, igs_action, updated_at_ca_ms FROM bonepile_entries"
-        params = []
-        conditions = []
-        if start_ca_ms is not None:
-            conditions.append("updated_at_ca_ms >= ?")
-            params.append(start_ca_ms)
-        if end_ca_ms is not None:
-            conditions.append("updated_at_ca_ms <= ?")
-            params.append(end_ca_ms)
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-        query += ";"
-        rows = conn.execute(query, params).fetchall()
-    finally:
-        conn.close()
-
     def _norm(s: Any) -> str:
         return (str(s) if s is not None else "").strip().upper()
 
@@ -2614,70 +2780,212 @@ def compute_disposition_sn_list(
 
     # Special handling for trays_bp and all_pass_trays: get ALL rows (not filtered by date range)
     if metric in ("trays_bp", "all_pass_trays"):
-        conn_all = connect_db()
+        conn = connect_db()
         try:
-            rows = conn_all.execute(
+            rows = conn.execute(
                 "SELECT sheet, excel_row, sn, nvpn, status, pic, nv_disposition, igs_action, updated_at_ca_ms FROM bonepile_entries;"
             ).fetchall()
         finally:
-            conn_all.close()
-
-    # Filter by metric first: show SNs that have at least one row matching the metric (waiting/complete/total/trays_bp/all_pass_trays)
-    # So when user clicks "Waiting IGS 5" we show all SNs that have any row with status=FAIL, pic=IGS (and sku/period if set)
-    sku_norm = (sku or "").strip() or None
-    filtered_rows = []
-    for r in rows:
-        row_sku = (r["nvpn"] or "").strip() or "Unknown"
-        if sku_norm and sku_norm != "__TOTAL__" and row_sku != sku_norm:
-            continue
-        if period and period != "__TOTAL__":
+            conn.close()
+        
+        # Per SN keep latest row
+        sn_rows: Dict[str, Dict[str, Any]] = {}
+        for r in rows:
             rd = _row_dict(r)
-            per_period = _disposition_period_from_row(rd, aggregation)
-            if per_period != period:
+            sn = (rd.get("sn") or "").strip()
+            if not sn:
                 continue
-        is_waiting = _norm(r["status"]) == "FAIL" and _norm(r["pic"]) == "IGS"
-        status_norm = _norm(r["status"])
-        if metric == "waiting" and not is_waiting:
-            continue
-        if metric == "complete" and is_waiting:
-            continue
-        if metric == "all_pass_trays" and not _is_pass_status(status_norm):
-            continue
-        # trays_bp: include all rows (no additional filter)
-        filtered_rows.append(r)
-    rows = filtered_rows
+            ca_ms = rd.get("updated_at_ca_ms")
+            existing = sn_rows.get(sn)
+            if existing is None or (ca_ms or 0) > (existing.get("updated_at_ca_ms") or 0):
+                sn_rows[sn] = {
+                    "sn": sn,
+                    "nvpn": (rd.get("nvpn") or "").strip() or "Unknown",
+                    "status": (rd.get("status") or "").strip(),
+                    "pic": (rd.get("pic") or "").strip(),
+                    "nv_disposition": rd.get("nv_disposition"),
+                    "igs_action": rd.get("igs_action"),
+                    "updated_at_ca_ms": ca_ms,
+                }
+        
+        # Filter by metric
+        out: List[Dict[str, Any]] = []
+        for sn, d in sn_rows.items():
+            status_norm = _norm(d.get("status"))
+            row_sku = d.get("nvpn")
+            if sku and sku != "__TOTAL__" and row_sku != sku:
+                continue
+            if metric == "all_pass_trays" and not _is_pass_status(status_norm):
+                continue
+            # trays_bp: include all
+            out.append({
+                "sn": sn,
+                "last_nv_dispo": _last_mmdd_entry(d.get("nv_disposition")),
+                "last_igs_action": _last_mmdd_entry(d.get("igs_action")),
+                "nvpn": row_sku,
+                "status": d.get("status"),
+                "pic": d.get("pic"),
+            })
+        out.sort(key=lambda x: (x["sn"]))
+        return out
 
-    # Per SN keep one row (latest by updated_at_ca_ms) for display
-    sn_rows: Dict[str, Dict[str, Any]] = {}
+    # For waiting/complete/total: use same logic as compute_disposition_stats
+    conn = connect_db()
+    try:
+        rows = conn.execute(
+            "SELECT sheet, excel_row, sn, nvpn, status, pic, nv_disposition, igs_action, updated_at_ca_ms FROM bonepile_entries;"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    # Step 1: Get latest row per SN
+    sn_data: Dict[str, Dict[str, Any]] = {}
     for r in rows:
-        sn = (r["sn"] or "").strip()
+        rd = _row_dict(r)
+        sn = (rd.get("sn") or "").strip()
         if not sn:
             continue
-        ca_ms = r["updated_at_ca_ms"]
-        existing = sn_rows.get(sn)
+        ca_ms = rd.get("updated_at_ca_ms")
+        existing = sn_data.get(sn)
         if existing is None or (ca_ms or 0) > (existing.get("updated_at_ca_ms") or 0):
-            sn_rows[sn] = {
-                "sn": sn,
-                "nvpn": (r["nvpn"] or "").strip() or "Unknown",
-                "status": (r["status"] or "").strip(),
-                "pic": (r["pic"] or "").strip(),
-                "nv_disposition": r["nv_disposition"],
-                "igs_action": r["igs_action"],
+            sn_data[sn] = {
+                "row": r,
+                "rd": rd,
                 "updated_at_ca_ms": ca_ms,
             }
 
+    # Step 2: Find KPI SNs (Status=FAIL, PIC=IGS, mm/dd from NV disposition in date range)
+    if start_ca_ms is not None and end_ca_ms is not None:
+        start_d = datetime.fromtimestamp(start_ca_ms / 1000.0, tz=CA_TZ).date()
+        end_d = datetime.fromtimestamp(end_ca_ms / 1000.0, tz=CA_TZ).date()
+    else:
+        start_d = None
+        end_d = None
+
+    kpi_sns: Dict[str, Dict[str, Any]] = {}
+    for sn, data in sn_data.items():
+        r = data["row"]
+        rd = data["rd"]
+        
+        status_ok = _norm(rd.get("status")) == "FAIL"
+        pic_ok = _norm(rd.get("pic")) == "IGS"
+        
+        # For "waiting" metric, must match KPI criteria
+        if metric == "waiting" and not (status_ok and pic_ok):
+            continue
+        # For "complete" metric, must NOT match waiting criteria
+        if metric == "complete" and (status_ok and pic_ok):
+            continue
+        
+        mmdd_nv = _last_mmdd_only(rd.get("nv_disposition"))
+        if mmdd_nv is None:
+            continue
+        
+        # Determine year for mm/dd: use year from date range if available, otherwise from updated_at
+        ca_ms = data["updated_at_ca_ms"]
+        year = None
+        if start_d is not None:
+            # Use year from start date range (most reliable)
+            year = start_d.year
+        elif ca_ms is not None:
+            try:
+                dt = datetime.fromtimestamp(ca_ms / 1000.0, tz=CA_TZ)
+                year = dt.year
+            except Exception:
+                pass
+        
+        if year is None:
+            continue
+        
+        try:
+            nv_date = date(year, mmdd_nv[0], mmdd_nv[1])
+        except (ValueError, TypeError):
+            continue
+        
+        # If date is in the past compared to updated_at, try next year
+        if ca_ms is not None:
+            try:
+                dt = datetime.fromtimestamp(ca_ms / 1000.0, tz=CA_TZ)
+                updated_date = dt.date()
+                if nv_date < updated_date - timedelta(days=30):
+                    # If mm/dd is more than 30 days before updated_at, likely next year
+                    try:
+                        nv_date_next_year = date(year + 1, mmdd_nv[0], mmdd_nv[1])
+                        if start_d is None or (start_d <= nv_date_next_year <= end_d):
+                            nv_date = nv_date_next_year
+                            year = year + 1
+                    except (ValueError, TypeError):
+                        pass
+            except Exception:
+                pass
+        
+        # Check date range
+        if start_d is not None and end_d is not None:
+            if not (start_d <= nv_date <= end_d):
+                continue
+        
+        # Calculate periods
+        def _date_to_period(d: date) -> str:
+            if aggregation == "monthly":
+                return d.strftime("%Y-%m")
+            elif aggregation == "weekly":
+                days_since_sunday = (d.weekday() + 1) % 7
+                week_start = d - timedelta(days=days_since_sunday)
+                week_end = week_start + timedelta(days=6)
+                return f"{week_start.strftime('%Y-%m-%d')}~{week_end.strftime('%Y-%m-%d')}"
+            else:
+                return d.strftime("%Y-%m-%d")
+        
+        period_nv = _date_to_period(nv_date)
+        mmdd_igs = _last_mmdd_only(rd.get("igs_action"))
+        period_igs = None
+        if mmdd_igs is not None:
+            try:
+                igs_date = date(year, mmdd_igs[0], mmdd_igs[1])
+                # If IGS date is in the past compared to NV date, try next year
+                if igs_date < nv_date - timedelta(days=30):
+                    try:
+                        igs_date = date(year + 1, mmdd_igs[0], mmdd_igs[1])
+                    except (ValueError, TypeError):
+                        pass
+                period_igs = _date_to_period(igs_date)
+            except (ValueError, TypeError):
+                pass
+        
+        # Filter by period (for waiting: use IGS period, for total: use NV period)
+        if period and period != "__TOTAL__":
+            if metric == "waiting":
+                if period_igs and period_igs != period:
+                    continue
+                elif not period_igs and period_nv != period:
+                    continue
+            else:
+                if period_nv != period:
+                    continue
+        
+        # Filter by SKU
+        row_sku = (r["nvpn"] or "").strip() or "Unknown"
+        if sku and sku != "__TOTAL__" and row_sku != sku:
+            continue
+        
+        kpi_sns[sn] = {
+            "row": r,
+            "rd": rd,
+            "nvpn": row_sku,
+        }
+
+    # Step 3: Build output
     out: List[Dict[str, Any]] = []
-    for sn, d in sn_rows.items():
-        nvpn = d["nvpn"]
-        last_nv = _last_mmdd_entry(d["nv_disposition"])
-        last_igs = _last_mmdd_entry(d["igs_action"])
+    for sn, info in kpi_sns.items():
+        r = info["row"]
+        rd = info["rd"]
         out.append({
             "sn": sn,
-            "last_nv_dispo": last_nv,
-            "last_igs_action": last_igs,
-            "nvpn": nvpn,
-            "status": d["status"],
-            "pic": d["pic"],
+            "last_nv_dispo": _last_mmdd_entry(rd.get("nv_disposition")),
+            "last_igs_action": _last_mmdd_entry(rd.get("igs_action")),
+            "nvpn": info["nvpn"],
+            "status": (rd.get("status") or "").strip(),
+            "pic": (rd.get("pic") or "").strip(),
         })
     out.sort(key=lambda x: (x["sn"]))
     return out
@@ -2730,6 +3038,20 @@ def api_export():
     test_flow = compute_test_flow(rows)
     details = compute_sn_details(rows)
 
+    start_s = start_ca.strftime("%Y%m%d_%H%M")
+    end_s = end_ca.strftime("%Y%m%d_%H%M")
+    export_format = (payload.get("format") or "csv").strip().lower()
+
+    # Handle XLSX export for summary and sku
+    if export_format == "xlsx" and export_kind in ("summary", "sku"):
+        try:
+            data_xlsx, filename = _build_export_xlsx(export_kind, computed, start_s, end_s, start_ca, end_ca)
+            return _xlsx_response(data_xlsx, filename)
+        except FileNotFoundError as e:
+            return jsonify({"error": str(e)}), 404
+        except Exception as e:
+            return jsonify({"error": f"XLSX export failed: {str(e)}"}), 500
+
     # Build CSV
     out = io.StringIO()
     w = csv.writer(out, lineterminator="\n")
@@ -2777,9 +3099,6 @@ def api_export():
                 cell = st_map.get(st) or {}
                 row_vals.append(_excel_text_cell(f"{cell.get('pass', 0)}/{cell.get('fail', 0)}"))
             w.writerow(row_vals)
-
-    start_s = start_ca.strftime("%Y%m%d_%H%M")
-    end_s = end_ca.strftime("%Y%m%d_%H%M")
 
     if export_kind == "summary":
         write_summary()

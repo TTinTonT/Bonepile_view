@@ -855,11 +855,11 @@
       <h3 class="text-lg font-semibold" style="color: var(--color-text);">Tray Summary (Unique SN)</h3>
       <div class="flex items-center gap-3">
         <span class="text-sm font-semibold" style="color: var(--color-muted);" id="range-note-summary">-</span>
-        <button class="btn-ghost btn-mini" id="export-summary" type="button" title="Export Tray Summary to CSV">
+        <button class="btn-ghost btn-mini" id="export-summary-xlsx" type="button" title="Export Tray Summary to Excel">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-3-3m3 3l3-3M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path>
           </svg>
-          Export CSV
+          Export Excel
         </button>
       </div>
      </div>
@@ -901,11 +901,11 @@
       <h3 class="text-lg font-semibold" style="color: var(--color-text);">SKU (Part Number) Summary</h3>
       <div class="flex items-center gap-3">
         <span class="text-sm font-semibold" style="color: var(--color-muted);" id="range-note-sku">-</span>
-        <button class="btn-ghost btn-mini" id="export-sku" type="button" title="Export SKU table to CSV">
+        <button class="btn-ghost btn-mini" id="export-sku-xlsx" type="button" title="Export SKU table to Excel">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-3-3m3 3l3-3M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path>
           </svg>
-          Export CSV
+          Export Excel
         </button>
       </div>
      </div>
@@ -2201,6 +2201,40 @@
     setLoading(false);
   }
 
+  async function downloadExcel(exportKind) {
+    const payload = getRangePayload();
+    setLoading(true, 'Preparing Excel export...');
+    setApiStatus(`Exporting ${exportKind} to Excel...`, 'busy');
+    const res = await fetch('/api/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, aggregation, export: exportKind, format: 'xlsx' })
+    });
+    if (!res.ok) {
+      let msg = `export failed (${res.status})`;
+      try {
+        const j = await res.json();
+        if (j && j.error) msg = j.error;
+      } catch (e) {}
+      setLoading(false);
+      setApiStatus(msg, 'err');
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get('content-disposition');
+    const filename = _filenameFromDisposition(cd) || `${exportKind}_export.xlsx`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2500);
+    setApiStatus('Download started', 'ok');
+    setLoading(false);
+  }
+
    async function pollJob(jobId) {
      for (let i = 0; i < 600; i++) {
        const res = await fetch(`/api/job/${encodeURIComponent(jobId)}`);
@@ -2456,15 +2490,15 @@
       alert('Error: ' + err.message);
     });
   });
-  document.getElementById('export-summary').addEventListener('click', () => {
-    downloadCsv('summary').catch(err => {
+  safeAddListener('export-summary-xlsx', 'click', () => {
+    downloadExcel('summary').catch(err => {
       console.error(err);
       setLoading(false);
       alert('Error: ' + err.message);
     });
   });
-  document.getElementById('export-sku').addEventListener('click', () => {
-    downloadCsv('sku').catch(err => {
+  safeAddListener('export-sku-xlsx', 'click', () => {
+    downloadExcel('sku').catch(err => {
       console.error(err);
       setLoading(false);
       alert('Error: ' + err.message);
