@@ -2403,6 +2403,21 @@ def _last_mmdd_entry(text: Any) -> str:
     return (str(text) if text is not None else "").strip()
 
 
+def _last_entry_for_mmdd(text: Any, month: int, day: int) -> str:
+    """Return the last disposition entry segment that has the given mm/dd, or empty string."""
+    entries = _extract_mmdd_entries(text)
+    for i in range(len(entries) - 1, -1, -1):
+        seg = entries[i]
+        m = re.search(r"\b(\d{1,2})/(\d{1,2})\b", seg)
+        if m:
+            try:
+                if int(m.group(1)) == month and int(m.group(2)) == day:
+                    return seg.strip()
+            except (ValueError, TypeError):
+                pass
+    return ""
+
+
 def _is_pass_status(status_norm: str) -> bool:
     """
     Check if normalized status string indicates a pass status.
@@ -2493,19 +2508,18 @@ def _disposition_period_from_ca_ms(ca_ms: Optional[int], aggregation: str) -> st
 def compute_disposition_stats(aggregation: str = "daily", start_ca_ms: Optional[int] = None, end_ca_ms: Optional[int] = None) -> Dict[str, Any]:
     """
     Compute NV Disposition stats from bonepile_entries.
-    
+
     Logic:
-    1. Total Dispositions: Đếm SNs có NV disposition date (mm/dd cuối cùng) trong date range
-    2. Waiting IGS: Status=FAIL, PIC=IGS, mm/dd từ NV disposition cuối cùng trong date range
-    3. By Period:
-       - Total: Phân loại SNs theo mm/dd từ NV disposition cuối cùng = ngày của header period
-       - Waiting IGS: Phân loại SNs theo mm/dd từ IGS action cuối cùng = ngày của header period
-    
-    Returns: summary { total, waiting_igs, complete }, by_sku [ { sku, total, waiting_igs, complete } ], by_period [ { period, total, waiting_igs, complete } ].
+    1. Total Dispositions: Sum of all mm/dd entries in NV disposition whose date is in user's date range (each entry = 1).
+    2. Waiting IGS: Count of SNs where Status=FAIL and PIC=IGS (no date range limit).
+    3. Complete: Count of SNs that have at least one disposition entry in the user's date range.
+    4. By Period:
+       - Total: disposition entries per period (date in range).
+       - Waiting IGS: Waiting SNs assigned to period by last NV disposition date.
+       - Complete: SNs that have at least one disposition in that period.
     """
     conn = connect_db()
     try:
-        # Get ALL rows (no date filter on SQL level)
         query = "SELECT sn, nvpn, status, pic, nv_disposition, igs_action, updated_at_ca_ms FROM bonepile_entries;"
         rows = conn.execute(query).fetchall()
     finally:
@@ -2520,7 +2534,7 @@ def compute_disposition_stats(aggregation: str = "daily", start_ca_ms: Optional[
     if start_ca_ms is not None and end_ca_ms is not None:
         start_d = datetime.fromtimestamp(start_ca_ms / 1000.0, tz=CA_TZ).date()
         end_d = datetime.fromtimestamp(end_ca_ms / 1000.0, tz=CA_TZ).date()
-        year = start_d.year  # Use year from date range
+        year = start_d.year
     else:
         start_d = None
         end_d = None
@@ -2537,7 +2551,7 @@ def compute_disposition_stats(aggregation: str = "daily", start_ca_ms: Optional[
         else:
             return d.strftime("%Y-%m-%d")
 
-    # Per SN, keep latest row
+    # Per SN, keep one row; tie-break by latest last mm/dd in nv_disposition so we have best content
     sn_latest: Dict[str, Dict[str, Any]] = {}
     for r in rows:
         rd = _row_dict(r)
@@ -2545,143 +2559,115 @@ def compute_disposition_stats(aggregation: str = "daily", start_ca_ms: Optional[
         if not sn:
             continue
         ca_ms = rd.get("updated_at_ca_ms")
+        nv_text = rd.get("nv_disposition")
+        last_mmdd = _last_mmdd_only(nv_text) if nv_text else None
         existing = sn_latest.get(sn)
-        if existing is None or (ca_ms or 0) > (existing.get("updated_at_ca_ms") or 0):
-            sn_latest[sn] = {
-                "row": r,
-                "rd": rd,
-                "updated_at_ca_ms": ca_ms,
-            }
-    
-    # Step 1: Count Total Dispositions - SNs có NV disposition date trong date range
-    total_sns: Dict[str, Dict[str, Any]] = {}
+        if existing is None:
+            sn_latest[sn] = {"row": r, "rd": rd, "updated_at_ca_ms": ca_ms, "last_mmdd": last_mmdd}
+            continue
+        existing_ca = existing.get("updated_at_ca_ms") or 0
+        if (ca_ms or 0) > existing_ca:
+            sn_latest[sn] = {"row": r, "rd": rd, "updated_at_ca_ms": ca_ms, "last_mmdd": last_mmdd}
+            continue
+        if (ca_ms or 0) == existing_ca and last_mmdd and existing.get("last_mmdd"):
+            # Prefer row with later last mm/dd
+            try:
+                cur_d = date(year, last_mmdd[0], last_mmdd[1])
+                exist_d = date(year, existing["last_mmdd"][0], existing["last_mmdd"][1])
+                if cur_d > exist_d:
+                    sn_latest[sn] = {"row": r, "rd": rd, "updated_at_ca_ms": ca_ms, "last_mmdd": last_mmdd}
+            except (ValueError, TypeError):
+                pass
+
+    # Step 1: Total Dispositions = sum of all mm/dd entries in NV disposition where date in range
+    total_dispo_count = 0
+    disposition_by_period: Dict[str, int] = {}
+    disposition_by_sku: Dict[str, int] = {}
+    complete_sns: set = set()
+    sn_by_period: Dict[str, set] = {}
+    sn_by_sku: Dict[str, set] = {}
+
     for sn, data in sn_latest.items():
         rd = data["rd"]
-        nv_dispo_text = rd.get("nv_disposition")
-        if not nv_dispo_text:
+        nv_text = rd.get("nv_disposition")
+        if not nv_text:
             continue
-        
-        # Get mm/dd cuối cùng từ NV disposition
-        mmdd_nv = _last_mmdd_only(nv_dispo_text)
-        if mmdd_nv is None:
-            continue
-        
-        # Build date from mm/dd
-        try:
-            nv_date = date(year, mmdd_nv[0], mmdd_nv[1])
-            # If date seems too old, try next year
-            if start_d and nv_date < start_d - timedelta(days=60):
-                nv_date = date(year + 1, mmdd_nv[0], mmdd_nv[1])
-        except (ValueError, TypeError):
-            continue
-        
-        # Check if date is in range
-        if start_d is not None and end_d is not None:
-            if not (start_d <= nv_date <= end_d):
-                continue
-        
         sku = (rd.get("nvpn") or "").strip() or "Unknown"
-        period = _date_to_period(nv_date)
-        
-        total_sns[sn] = {
-            "sku": sku,
-            "nv_date": nv_date,
-            "period": period,
-        }
+        entries = _extract_mmdd_entries(nv_text)
+        for entry_text in entries:
+            m = re.search(r"\b(\d{1,2})/(\d{1,2})\b", entry_text)
+            if not m:
+                continue
+            try:
+                month, day = int(m.group(1)), int(m.group(2))
+                if not (1 <= month <= 12 and 1 <= day <= 31):
+                    continue
+                entry_date = date(year, month, day)
+                if start_d and entry_date < start_d - timedelta(days=60):
+                    entry_date = date(year + 1, month, day)
+                if start_d is not None and end_d is not None:
+                    if not (start_d <= entry_date <= end_d):
+                        continue
+                total_dispo_count += 1
+                period = _date_to_period(entry_date)
+                disposition_by_period[period] = disposition_by_period.get(period, 0) + 1
+                disposition_by_sku[sku] = disposition_by_sku.get(sku, 0) + 1
+                complete_sns.add(sn)
+                sn_by_period.setdefault(period, set()).add(sn)
+                sn_by_sku.setdefault(sku, set()).add(sn)
+            except (ValueError, TypeError):
+                continue
 
-    # Step 2: Count Waiting IGS - SNs với Status=FAIL, PIC=IGS, mm/dd cuối cùng trong date range
+    # Step 2: Waiting IGS = all SNs with Status=FAIL and PIC=IGS (no date range)
     waiting_sns: Dict[str, Dict[str, Any]] = {}
     for sn, data in sn_latest.items():
-        r = data["row"]
         rd = data["rd"]
-        
-        # Check Waiting IGS criteria: Status=FAIL, PIC=IGS
-        status_ok = _norm(rd.get("status")) == "FAIL"
-        pic_ok = _norm(rd.get("pic")) == "IGS"
-        if not (status_ok and pic_ok):
+        if _norm(rd.get("status")) != "FAIL" or _norm(rd.get("pic")) != "IGS":
             continue
-        
-        # Get mm/dd cuối cùng từ NV disposition
         mmdd_nv = _last_mmdd_only(rd.get("nv_disposition"))
         if mmdd_nv is None:
             continue
-        
-        # Build date from mm/dd
         try:
             nv_date = date(year, mmdd_nv[0], mmdd_nv[1])
-            # If date seems too old, try next year
             if start_d and nv_date < start_d - timedelta(days=60):
                 nv_date = date(year + 1, mmdd_nv[0], mmdd_nv[1])
         except (ValueError, TypeError):
             continue
-        
-        # Check if date is in range
-        if start_d is not None and end_d is not None:
-            if not (start_d <= nv_date <= end_d):
-                continue
-        
-        # Get mm/dd từ IGS action cuối cùng (for period classification)
-        mmdd_igs = _last_mmdd_only(rd.get("igs_action"))
-        igs_date = None
-        if mmdd_igs is not None:
-            try:
-                igs_date = date(year, mmdd_igs[0], mmdd_igs[1])
-                if start_d and igs_date < start_d - timedelta(days=60):
-                    igs_date = date(year + 1, mmdd_igs[0], mmdd_igs[1])
-            except (ValueError, TypeError):
-                pass
-        
         sku = (rd.get("nvpn") or "").strip() or "Unknown"
         period_nv = _date_to_period(nv_date)
-        period_igs = _date_to_period(igs_date) if igs_date else None
-        
-        waiting_sns[sn] = {
-            "sku": sku,
-            "nv_date": nv_date,
-            "igs_date": igs_date,
-            "period_nv": period_nv,
-            "period_igs": period_igs,
-        }
+        waiting_sns[sn] = {"sku": sku, "period_nv": period_nv}
 
     # Step 3: Build by_period and by_sku
     by_period: Dict[str, Dict[str, Any]] = {}
     by_sku: Dict[str, Dict[str, Any]] = {}
-    
-    # Total dispositions by period (from SNs)
-    for sn, info in total_sns.items():
-        period = info["period"]
+
+    for period, count in disposition_by_period.items():
         by_period.setdefault(period, {"period": period, "total": 0, "waiting_igs": 0, "complete": 0})
-        by_period[period]["total"] += 1
-        
-        sku = info["sku"]
-        by_sku.setdefault(sku, {"sku": sku, "total": 0, "waiting_igs": 0, "complete": 0})
-        by_sku[sku]["total"] += 1
-    
-    # Waiting IGS by period (from SNs)
+        by_period[period]["total"] = count
+    for period, sn_set in sn_by_period.items():
+        by_period.setdefault(period, {"period": period, "total": 0, "waiting_igs": 0, "complete": 0})
+        by_period[period]["complete"] = len(sn_set)
     for sn, info in waiting_sns.items():
-        waiting_period = info["period_igs"] if info["period_igs"] else info["period_nv"]
-        by_period.setdefault(waiting_period, {"period": waiting_period, "total": 0, "waiting_igs": 0, "complete": 0})
-        by_period[waiting_period]["waiting_igs"] += 1
-        
+        p = info["period_nv"]
+        by_period.setdefault(p, {"period": p, "total": 0, "waiting_igs": 0, "complete": 0})
+        by_period[p]["waiting_igs"] += 1
         sku = info["sku"]
         by_sku.setdefault(sku, {"sku": sku, "total": 0, "waiting_igs": 0, "complete": 0})
         by_sku[sku]["waiting_igs"] += 1
+    for sku, count in disposition_by_sku.items():
+        by_sku.setdefault(sku, {"sku": sku, "total": 0, "waiting_igs": 0, "complete": 0})
+        by_sku[sku]["total"] = count
+    for sku, sn_set in sn_by_sku.items():
+        by_sku.setdefault(sku, {"sku": sku, "total": 0, "waiting_igs": 0, "complete": 0})
+        by_sku[sku]["complete"] = len(sn_set)
 
-    # Calculate complete
-    for sku, d in by_sku.items():
-        d["complete"] = d["total"] - d.get("waiting_igs", 0)
-    for period, d in by_period.items():
-        d["complete"] = d["total"] - d.get("waiting_igs", 0)
-
-    # Summary
-    summary_total = len(total_sns)
+    summary_total = total_dispo_count
     summary_waiting = len(waiting_sns)
-    summary_complete = summary_total - summary_waiting
-    
+    summary_complete = len(complete_sns)
     summary = {
         "total": summary_total,
         "waiting_igs": summary_waiting,
-        "complete": summary_complete
+        "complete": summary_complete,
     }
 
     # Count unique trays (SNs) in BP and trays with ALL PASS status
@@ -2829,7 +2815,7 @@ def compute_disposition_sn_list(
         out.sort(key=lambda x: (x["sn"]))
         return out
 
-    # For waiting/complete/total: use same logic as compute_disposition_stats
+    # waiting | complete | total: align with compute_disposition_stats
     conn = connect_db()
     try:
         rows = conn.execute(
@@ -2838,7 +2824,16 @@ def compute_disposition_sn_list(
     finally:
         conn.close()
 
-    # Step 1: Get latest row per SN
+    year = datetime.now(CA_TZ).year
+    if start_ca_ms is not None and end_ca_ms is not None:
+        start_d = datetime.fromtimestamp(start_ca_ms / 1000.0, tz=CA_TZ).date()
+        end_d = datetime.fromtimestamp(end_ca_ms / 1000.0, tz=CA_TZ).date()
+        year = start_d.year
+    else:
+        start_d = None
+        end_d = None
+
+    # Latest row per SN (tie-break by last mm/dd in nv_disposition)
     sn_data: Dict[str, Dict[str, Any]] = {}
     for r in rows:
         rd = _row_dict(r)
@@ -2846,147 +2841,175 @@ def compute_disposition_sn_list(
         if not sn:
             continue
         ca_ms = rd.get("updated_at_ca_ms")
+        last_mmdd = _last_mmdd_only(rd.get("nv_disposition"))
         existing = sn_data.get(sn)
-        if existing is None or (ca_ms or 0) > (existing.get("updated_at_ca_ms") or 0):
-            sn_data[sn] = {
-                "row": r,
-                "rd": rd,
-                "updated_at_ca_ms": ca_ms,
-            }
-
-    # Step 2: Find KPI SNs (Status=FAIL, PIC=IGS, mm/dd from NV disposition in date range)
-    if start_ca_ms is not None and end_ca_ms is not None:
-        start_d = datetime.fromtimestamp(start_ca_ms / 1000.0, tz=CA_TZ).date()
-        end_d = datetime.fromtimestamp(end_ca_ms / 1000.0, tz=CA_TZ).date()
-    else:
-        start_d = None
-        end_d = None
-
-    kpi_sns: Dict[str, Dict[str, Any]] = {}
-    for sn, data in sn_data.items():
-        r = data["row"]
-        rd = data["rd"]
-        
-        status_ok = _norm(rd.get("status")) == "FAIL"
-        pic_ok = _norm(rd.get("pic")) == "IGS"
-        
-        # For "waiting" metric, must match KPI criteria
-        if metric == "waiting" and not (status_ok and pic_ok):
+        if existing is None:
+            sn_data[sn] = {"row": r, "rd": rd, "updated_at_ca_ms": ca_ms, "last_mmdd": last_mmdd}
             continue
-        # For "complete" metric, must NOT match waiting criteria
-        if metric == "complete" and (status_ok and pic_ok):
+        if (ca_ms or 0) > (existing.get("updated_at_ca_ms") or 0):
+            sn_data[sn] = {"row": r, "rd": rd, "updated_at_ca_ms": ca_ms, "last_mmdd": last_mmdd}
             continue
-        
-        mmdd_nv = _last_mmdd_only(rd.get("nv_disposition"))
-        if mmdd_nv is None:
-            continue
-        
-        # Determine year for mm/dd: use year from date range if available, otherwise from updated_at
-        ca_ms = data["updated_at_ca_ms"]
-        year = None
-        if start_d is not None:
-            # Use year from start date range (most reliable)
-            year = start_d.year
-        elif ca_ms is not None:
+        if (ca_ms or 0) == (existing.get("updated_at_ca_ms") or 0) and last_mmdd and existing.get("last_mmdd"):
             try:
-                dt = datetime.fromtimestamp(ca_ms / 1000.0, tz=CA_TZ)
-                year = dt.year
-            except Exception:
-                pass
-        
-        if year is None:
-            continue
-        
-        try:
-            nv_date = date(year, mmdd_nv[0], mmdd_nv[1])
-        except (ValueError, TypeError):
-            continue
-        
-        # If date is in the past compared to updated_at, try next year
-        if ca_ms is not None:
-            try:
-                dt = datetime.fromtimestamp(ca_ms / 1000.0, tz=CA_TZ)
-                updated_date = dt.date()
-                if nv_date < updated_date - timedelta(days=30):
-                    # If mm/dd is more than 30 days before updated_at, likely next year
-                    try:
-                        nv_date_next_year = date(year + 1, mmdd_nv[0], mmdd_nv[1])
-                        if start_d is None or (start_d <= nv_date_next_year <= end_d):
-                            nv_date = nv_date_next_year
-                            year = year + 1
-                    except (ValueError, TypeError):
-                        pass
-            except Exception:
-                pass
-        
-        # Check date range
-        if start_d is not None and end_d is not None:
-            if not (start_d <= nv_date <= end_d):
-                continue
-        
-        # Calculate periods
-        def _date_to_period(d: date) -> str:
-            if aggregation == "monthly":
-                return d.strftime("%Y-%m")
-            elif aggregation == "weekly":
-                days_since_sunday = (d.weekday() + 1) % 7
-                week_start = d - timedelta(days=days_since_sunday)
-                week_end = week_start + timedelta(days=6)
-                return f"{week_start.strftime('%Y-%m-%d')}~{week_end.strftime('%Y-%m-%d')}"
-            else:
-                return d.strftime("%Y-%m-%d")
-        
-        period_nv = _date_to_period(nv_date)
-        mmdd_igs = _last_mmdd_only(rd.get("igs_action"))
-        period_igs = None
-        if mmdd_igs is not None:
-            try:
-                igs_date = date(year, mmdd_igs[0], mmdd_igs[1])
-                # If IGS date is in the past compared to NV date, try next year
-                if igs_date < nv_date - timedelta(days=30):
-                    try:
-                        igs_date = date(year + 1, mmdd_igs[0], mmdd_igs[1])
-                    except (ValueError, TypeError):
-                        pass
-                period_igs = _date_to_period(igs_date)
+                cur_d = date(year, last_mmdd[0], last_mmdd[1])
+                exist_d = date(year, existing["last_mmdd"][0], existing["last_mmdd"][1])
+                if cur_d > exist_d:
+                    sn_data[sn] = {"row": r, "rd": rd, "updated_at_ca_ms": ca_ms, "last_mmdd": last_mmdd}
             except (ValueError, TypeError):
                 pass
-        
-        # Filter by period (for waiting: use IGS period, for total: use NV period)
-        if period and period != "__TOTAL__":
-            if metric == "waiting":
-                if period_igs and period_igs != period:
+
+    out: List[Dict[str, Any]] = []
+
+    if metric == "waiting":
+        # All SNs with Status=FAIL and PIC=IGS (no date filter). Optional filter by period = last NV disposition period.
+        for sn, data in sn_data.items():
+            rd = data["rd"]
+            if _norm(rd.get("status")) != "FAIL" or _norm(rd.get("pic")) != "IGS":
+                continue
+            if _last_mmdd_only(rd.get("nv_disposition")) is None:
+                continue
+            row_sku = (rd.get("nvpn") or "").strip() or "Unknown"
+            if sku and sku != "__TOTAL__" and row_sku != sku:
+                continue
+            mmdd_nv = _last_mmdd_only(rd.get("nv_disposition"))
+            try:
+                nv_date = date(year, mmdd_nv[0], mmdd_nv[1])
+                if start_d and nv_date < start_d - timedelta(days=60):
+                    nv_date = date(year + 1, mmdd_nv[0], mmdd_nv[1])
+            except (ValueError, TypeError):
+                continue
+            period_nv = nv_date.strftime("%Y-%m-%d") if aggregation == "daily" else (
+                nv_date.strftime("%Y-%m") if aggregation == "monthly" else ""
+            )
+            if aggregation == "weekly":
+                days_since_sunday = (nv_date.weekday() + 1) % 7
+                week_start = nv_date - timedelta(days=days_since_sunday)
+                week_end = week_start + timedelta(days=6)
+                period_nv = f"{week_start.strftime('%Y-%m-%d')}~{week_end.strftime('%Y-%m-%d')}"
+            if period and period != "__TOTAL__" and period_nv != period:
+                continue
+            out.append({
+                "sn": sn,
+                "last_nv_dispo": _last_mmdd_entry(rd.get("nv_disposition")),
+                "last_igs_action": _last_mmdd_entry(rd.get("igs_action")),
+                "nvpn": row_sku,
+                "status": (rd.get("status") or "").strip(),
+                "pic": (rd.get("pic") or "").strip(),
+            })
+        out.sort(key=lambda x: (x["sn"]))
+        return out
+
+    if metric == "complete":
+        # SNs that have at least one disposition in range; filter by period/sku
+        for sn, data in sn_data.items():
+            rd = data["rd"]
+            nv_text = rd.get("nv_disposition")
+            if not nv_text:
+                continue
+            row_sku = (rd.get("nvpn") or "").strip() or "Unknown"
+            if sku and sku != "__TOTAL__" and row_sku != sku:
+                continue
+            has_in_range = False
+            periods_with_entry = set()
+            for entry_text in _extract_mmdd_entries(nv_text):
+                m = re.search(r"\b(\d{1,2})/(\d{1,2})\b", entry_text)
+                if not m:
                     continue
-                elif not period_igs and period_nv != period:
+                try:
+                    month, day = int(m.group(1)), int(m.group(2))
+                    if not (1 <= month <= 12 and 1 <= day <= 31):
+                        continue
+                    entry_date = date(year, month, day)
+                    if start_d and entry_date < start_d - timedelta(days=60):
+                        entry_date = date(year + 1, month, day)
+                    if start_d is not None and end_d is not None:
+                        if not (start_d <= entry_date <= end_d):
+                            continue
+                    has_in_range = True
+                    if aggregation == "daily":
+                        periods_with_entry.add(entry_date.strftime("%Y-%m-%d"))
+                    elif aggregation == "monthly":
+                        periods_with_entry.add(entry_date.strftime("%Y-%m"))
+                    else:
+                        days_since_sunday = (entry_date.weekday() + 1) % 7
+                        week_start = entry_date - timedelta(days=days_since_sunday)
+                        week_end = week_start + timedelta(days=6)
+                        periods_with_entry.add(f"{week_start.strftime('%Y-%m-%d')}~{week_end.strftime('%Y-%m-%d')}")
+                except (ValueError, TypeError):
                     continue
-            else:
-                if period_nv != period:
-                    continue
-        
-        # Filter by SKU
-        row_sku = (r["nvpn"] or "").strip() or "Unknown"
+            if not has_in_range:
+                continue
+            if period and period != "__TOTAL__" and period not in periods_with_entry:
+                continue
+            out.append({
+                "sn": sn,
+                "last_nv_dispo": _last_mmdd_entry(rd.get("nv_disposition")),
+                "last_igs_action": _last_mmdd_entry(rd.get("igs_action")),
+                "nvpn": row_sku,
+                "status": (rd.get("status") or "").strip(),
+                "pic": (rd.get("pic") or "").strip(),
+            })
+        out.sort(key=lambda x: (x["sn"]))
+        return out
+
+    # metric == "total": SNs that have at least one disposition on the given period date; show last entry for that date
+    period_month, period_day = None, None
+    if period and period != "__TOTAL__":
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", period):
+            try:
+                pd = datetime.strptime(period, "%Y-%m-%d").date()
+                period_month, period_day = pd.month, pd.day
+            except ValueError:
+                pass
+    for sn, data in sn_data.items():
+        rd = data["rd"]
+        nv_text = rd.get("nv_disposition")
+        if not nv_text:
+            continue
+        row_sku = (rd.get("nvpn") or "").strip() or "Unknown"
         if sku and sku != "__TOTAL__" and row_sku != sku:
             continue
-        
-        kpi_sns[sn] = {
-            "row": r,
-            "rd": rd,
-            "nvpn": row_sku,
-        }
-
-    # Step 3: Build output
-    out: List[Dict[str, Any]] = []
-    for sn, info in kpi_sns.items():
-        r = info["row"]
-        rd = info["rd"]
-        out.append({
-            "sn": sn,
-            "last_nv_dispo": _last_mmdd_entry(rd.get("nv_disposition")),
-            "last_igs_action": _last_mmdd_entry(rd.get("igs_action")),
-            "nvpn": info["nvpn"],
-            "status": (rd.get("status") or "").strip(),
-            "pic": (rd.get("pic") or "").strip(),
-        })
+        if period and period != "__TOTAL__" and period_month is not None and period_day is not None:
+            # Only include SNs that have at least one entry on this date; show last entry for that date
+            last_for_date = _last_entry_for_mmdd(nv_text, period_month, period_day)
+            if not last_for_date:
+                continue
+            out.append({
+                "sn": sn,
+                "last_nv_dispo": last_for_date,
+                "last_igs_action": _last_mmdd_entry(rd.get("igs_action")),
+                "nvpn": row_sku,
+                "status": (rd.get("status") or "").strip(),
+                "pic": (rd.get("pic") or "").strip(),
+            })
+        else:
+            # Total overall: SNs with at least one disposition in range; show last disposition (one row per SN)
+            has_in_range = False
+            for entry_text in _extract_mmdd_entries(nv_text):
+                m = re.search(r"\b(\d{1,2})/(\d{1,2})\b", entry_text)
+                if not m:
+                    continue
+                try:
+                    month, day = int(m.group(1)), int(m.group(2))
+                    entry_date = date(year, month, day)
+                    if start_d and entry_date < start_d - timedelta(days=60):
+                        entry_date = date(year + 1, month, day)
+                    if start_d is not None and end_d is not None:
+                        if not (start_d <= entry_date <= end_d):
+                            continue
+                    has_in_range = True
+                    break
+                except (ValueError, TypeError):
+                    continue
+            if has_in_range:
+                out.append({
+                    "sn": sn,
+                    "last_nv_dispo": _last_mmdd_entry(rd.get("nv_disposition")),
+                    "last_igs_action": _last_mmdd_entry(rd.get("igs_action")),
+                    "nvpn": row_sku,
+                    "status": (rd.get("status") or "").strip(),
+                    "pic": (rd.get("pic") or "").strip(),
+                })
     out.sort(key=lambda x: (x["sn"]))
     return out
 

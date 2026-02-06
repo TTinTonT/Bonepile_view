@@ -1082,9 +1082,9 @@
             </div>
           </div>
           <p class="text-xs mt-4" style="color: var(--color-muted);">
-            <strong>Note:</strong> Total Dispositions = sum of all NV disposition entries (each mm/dd date counts as one disposition). 
-            Waiting IGS = count of SNs whose last disposition status is "Fail" and PIC is "IGS". 
-            Complete = Total Dispositions - Waiting IGS.
+            <strong>Note:</strong> Total Dispositions = sum of all NV disposition entries in the selected date range (each mm/dd entry = one disposition). 
+            Waiting IGS = count of SNs with Status = Fail and PIC = IGS (not limited by date range). 
+            Complete = count of SNs that have at least one disposition in the selected date range.
           </p>
         </div>
         <!-- By SKU -->
