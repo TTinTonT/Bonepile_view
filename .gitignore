@@ -4,6 +4,9 @@ __pycache__/
 .DS_Store
 *.xlsx
 *.xls
+# Allow Excel templates required for export (must be in repo)
+!templates/SKU_Summary.xlsx
+!templates/Tray_Summary_Template.xlsx
 
 # Runtime mapping (user-specific)
 cache/user_mapping.json
