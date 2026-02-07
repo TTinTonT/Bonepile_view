@@ -1855,6 +1855,8 @@
        setLoading(true, data.message || 'Parsing...');
        if (data.status === 'done') {
          await refreshBonepilePanel();
+         // Disposition uses current filter after upload
+         loadDispositionPanel().catch(err => { console.error('loadDispositionPanel after parse:', err); });
          // Get summary from refreshed status
          try {
            const statusRes = await fetch('/api/bonepile/status');
@@ -1915,6 +1917,7 @@
          setLoading(false);
          setApiStatus('Upload completed.', 'ok');
          await refreshBonepilePanel();
+         loadDispositionPanel().catch(err => { console.error('loadDispositionPanel after upload:', err); });
        }
      } finally {
        isUploadingBonepile = false;
@@ -2465,17 +2468,23 @@
      }
    });
 
-   safeAddListener('apply-filter', 'click', () => {
+   function applyFilter() {
      runQuery().catch(err => {
        console.error(err);
        setLoading(false);
-      setApiStatus('Error: ' + err.message, 'err');
+       setApiStatus('Error: ' + err.message, 'err');
        alert('Error: ' + err.message);
      });
-     // Also reload NV Disposition panel with the new filter
      loadDispositionPanel().catch(err => {
        console.error('loadDispositionPanel error:', err);
      });
+   }
+   safeAddListener('apply-filter', 'click', applyFilter);
+
+   // Auto-apply when user changes filter (date/time)
+   ['start-date','end-date','start-time','end-time'].forEach((id) => {
+     const el = document.getElementById(id);
+     if (el) el.addEventListener('change', () => applyFilter());
    });
 
    safeAddListener('refresh-page', 'click', () => {
