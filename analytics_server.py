@@ -890,7 +890,9 @@ def _parse_mfg_time_to_ca_ms(s: str) -> Optional[int]:
 
 
 def _expand_mfg_row_to_entries(row: Dict[str, Any], ca_ms: int) -> List[Dict[str, Any]]:
-    """Expand one mfg_sn_data row (per-station p/f) into list of raw_entries-like dicts."""
+    """Expand one mfg_sn_data row (per-station p/f) into list of raw_entries-like dicts.
+    Adds source_status (Pass/Fail from mfg row) so dashboard uses latest log result, not 'any final pass'.
+    """
     sn = (row.get("SN") or "").strip()
     part_number = (row.get("Partnumber") or "").strip() or "Unknown"
     is_bp = 1 if (str(row.get("bonepile") or "").strip().lower() == "true") else 0
@@ -899,6 +901,7 @@ def _expand_mfg_row_to_entries(row: Dict[str, Any], ca_ms: int) -> List[Dict[str
     ca_hour = dt_ca.hour
     ca_week = dt_ca.strftime("%Y-%m-%d") + "~" + (dt_ca + timedelta(days=6 - dt_ca.weekday())).strftime("%Y-%m-%d")
     ca_month = dt_ca.strftime("%Y-%m")
+    source_status = str(row.get("Status") or "").strip().lower()  # pass/fail from latest log
 
     out: List[Dict[str, Any]] = []
     for station in MFG_STATION_COLUMNS:
@@ -928,6 +931,7 @@ def _expand_mfg_row_to_entries(row: Dict[str, Any], ca_ms: int) -> List[Dict[str
                 "folder_path": "",
                 "node_log_id": node_log_id,
                 "last_station": last_station,
+                "source_status": source_status,
             })
         for _ in range(f):
             out.append({
@@ -946,6 +950,7 @@ def _expand_mfg_row_to_entries(row: Dict[str, Any], ca_ms: int) -> List[Dict[str
                 "folder_path": "",
                 "node_log_id": node_log_id,
                 "last_station": last_station,
+                "source_status": source_status,
             })
     return out
 
@@ -1069,14 +1074,19 @@ def compute_stats(rows: List[sqlite3.Row], aggregation: str) -> Dict[str, Any]:
         is_pass = 0
         latest_part = "Unknown"
         latest_utc = -1
+        # MFG: use source_status (latest log) for pass/fail; else derive from any final pass
+        src = (tests[0].get("source_status") or "").strip().lower() if tests else ""
+        use_src = src in ("pass", "fail")
         for t in tests:
             if (t["is_bonepile"] or 0) == 1:
                 is_bp = 1
-            if is_final_pass(t["status"], t["station"], t["part_number"]):
+            if not use_src and is_final_pass(t["status"], t["station"], t["part_number"]):
                 is_pass = 1
             if int(t["utc_ms"]) > latest_utc:
                 latest_utc = int(t["utc_ms"])
                 latest_part = t["part_number"] or "Unknown"
+        if use_src:
+            is_pass = 1 if src == "pass" else 0
         sn_is_bp[sn] = is_bp
         sn_pass[sn] = is_pass
         sn_latest_part[sn] = latest_part
@@ -1135,7 +1145,11 @@ def compute_stats(rows: List[sqlite3.Row], aggregation: str) -> Dict[str, Any]:
             is_bp_bucket = any((t["is_bonepile"] or 0) == 1 for t in tests)
             if is_bp_bucket:
                 bp += 1
-            if any(is_final_pass(t["status"], t["station"], t["part_number"]) for t in tests):
+            src = (tests[0].get("source_status") or "").strip().lower() if tests else ""
+            if src in ("pass", "fail"):
+                if src == "pass":
+                    passed += 1
+            elif any(is_final_pass(t["status"], t["station"], t["part_number"]) for t in tests):
                 passed += 1
         fresh = tested - bp
         pass_rate = (passed / tested) if tested else 0.0
@@ -1516,11 +1530,20 @@ def compute_sn_details(rows: List[sqlite3.Row]) -> List[Dict[str, Any]]:
             elif last_folder_path:
                 last_folder_id = os.path.basename(last_folder_path)
 
+        # MFG: use source_status (latest log Pass/Fail) so UI matches DB; else derive from any final pass
+        use_source = tests and tests[0].get("source_status") is not None
+        source_status = (tests[0].get("source_status") or "").strip().lower() if use_source else ""
+        if use_source and source_status in ("pass", "fail"):
+            is_pass = 1 if source_status == "pass" else 0
+            pass_ms = last_ca_ms if source_status == "pass" else None
+        else:
+            is_pass = 1 if pass_ms is not None else 0
+
         out.append(
             {
                 "sn": sn,
-                "result": "PASS" if pass_ms is not None else "FAIL",
-                "is_pass": 1 if pass_ms is not None else 0,
+                "result": "PASS" if is_pass else "FAIL",
+                "is_pass": is_pass,
                 "is_bonepile": 1 if is_bp else 0,
                 "pass_ca_ms": pass_ms,
                 "fail_ca_ms": fail_ms,
