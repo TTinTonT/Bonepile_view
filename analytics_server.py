@@ -93,6 +93,7 @@ app = Flask(
 auto_status_lock = threading.Lock()
 next_auto_scan_ms: Optional[int] = None
 last_retention_cleanup_ms: Optional[int] = None
+last_mfg_scan_ca_ms: Optional[int] = None
 
 
 # -----------------------------
@@ -1793,33 +1794,33 @@ def dashboard():
 
 @app.route("/api/status")
 def api_status():
-    # Self-heal if cache files were manually deleted.
     ensure_db_ready()
     state = RawState.load()
-    data_min_ca_ms, data_max_ca_ms = get_db_data_range_ca_ms()
+    # Data coverage từ MFG (cache có ngày nào)
+    data_min_ca_ms, data_max_ca_ms = get_mfg_data_range_ca_ms()
+    if data_min_ca_ms is None and data_max_ca_ms is None:
+        data_min_ca_ms, data_max_ca_ms = get_db_data_range_ca_ms()
     with auto_status_lock:
         next_ms = next_auto_scan_ms
         last_cleanup_ms = last_retention_cleanup_ms
+        last_scan_ms = last_mfg_scan_ca_ms if last_mfg_scan_ca_ms is not None else state.last_scan_ca_ms
     return jsonify(
         {
             "cache": {
-                # Data coverage (actual rows present)
                 "min_ca_ms": data_min_ca_ms,
                 "max_ca_ms": data_max_ca_ms,
-                # Scan coverage (what we have attempted to cover)
                 "scan_min_ca_ms": state.min_ca_ms,
                 "scan_max_ca_ms": state.max_ca_ms,
                 "min_key": list(state.min_key) if state.min_key else None,
                 "max_key": list(state.max_key) if state.max_key else None,
                 "min_path": state.min_path,
                 "max_path": state.max_path,
-                "last_scan_ca_ms": state.last_scan_ca_ms,
-                "scan_interval_seconds": AUTO_SCAN_EVERY_SECONDS,
+                "last_scan_ca_ms": last_scan_ms,
+                "scan_interval_seconds": MFG_SCAN_EVERY_SECONDS,
                 "retention_days": RETENTION_DAYS,
                 "next_auto_scan_ms": next_ms,
                 "last_retention_cleanup_ms": last_cleanup_ms,
-            }
-            ,
+            },
             "bonepile": _bonepile_status_payload(state),
         }
     )
@@ -1840,23 +1841,25 @@ def api_events():
     def get_status_payload() -> Dict[str, Any]:
         ensure_db_ready()
         state = RawState.load()
-        data_min_ca_ms, data_max_ca_ms = get_db_data_range_ca_ms()
+        data_min_ca_ms, data_max_ca_ms = get_mfg_data_range_ca_ms()
+        if data_min_ca_ms is None and data_max_ca_ms is None:
+            data_min_ca_ms, data_max_ca_ms = get_db_data_range_ca_ms()
         with auto_status_lock:
             next_ms = next_auto_scan_ms
             last_cleanup_ms = last_retention_cleanup_ms
+            last_scan_ms = last_mfg_scan_ca_ms if last_mfg_scan_ca_ms is not None else state.last_scan_ca_ms
         return {
             "cache": {
                 "min_ca_ms": data_min_ca_ms,
                 "max_ca_ms": data_max_ca_ms,
                 "scan_min_ca_ms": state.min_ca_ms,
                 "scan_max_ca_ms": state.max_ca_ms,
-                "last_scan_ca_ms": state.last_scan_ca_ms,
-                "scan_interval_seconds": AUTO_SCAN_EVERY_SECONDS,
+                "last_scan_ca_ms": last_scan_ms,
+                "scan_interval_seconds": MFG_SCAN_EVERY_SECONDS,
                 "retention_days": RETENTION_DAYS,
                 "next_auto_scan_ms": next_ms,
                 "last_retention_cleanup_ms": last_cleanup_ms,
-            }
-            ,
+            },
             "bonepile": _bonepile_status_payload(state),
         }
 
@@ -3561,20 +3564,27 @@ def auto_scan_loop():
 
 
 # MFG scan: forward_scan every N sec (optional; fails silently if mfg_scan not available)
-MFG_SCAN_EVERY_SECONDS = 300  # 5 min
+MFG_SCAN_EVERY_SECONDS = 60  # 1 min
 
 
 def mfg_forward_scan_loop():
+    global next_auto_scan_ms, last_mfg_scan_ca_ms
     try:
         from mfg_scan import forward_scan, run_backfill
-        run_backfill()   # backward once on start
-        forward_scan()   # forward once on start
+        run_backfill()
+        forward_scan()
+        with auto_status_lock:
+            next_auto_scan_ms = int((time.time() + MFG_SCAN_EVERY_SECONDS) * 1000)
+            last_mfg_scan_ca_ms = int(time.time() * 1000)
     except Exception:
         pass
     while True:
         try:
             from mfg_scan import forward_scan
             forward_scan()
+            with auto_status_lock:
+                next_auto_scan_ms = int((time.time() + MFG_SCAN_EVERY_SECONDS) * 1000)
+                last_mfg_scan_ca_ms = int(time.time() * 1000)
         except Exception:
             pass
         time.sleep(float(MFG_SCAN_EVERY_SECONDS))

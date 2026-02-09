@@ -1987,9 +1987,8 @@
      if (!el) return;
      setInterval(() => {
        const nextMs = window.__nextAutoScanMs;
-       const intervalSec = window.__scanIntervalSeconds || 300;
        if (!nextMs) {
-         el.textContent = fmtCountdown(intervalSec);
+         el.textContent = '--:--';
          return;
        }
        const remainingSec = (nextMs - Date.now()) / 1000;
@@ -2745,7 +2744,7 @@
    function applyStatusFromPayload(data) {
      try {
        const c = (data && data.cache) ? data.cache : {};
-       window.__scanIntervalSeconds = c.scan_interval_seconds || 300;
+       window.__scanIntervalSeconds = c.scan_interval_seconds || 60;
        window.__nextAutoScanMs = c.next_auto_scan_ms || null;
 
        const fmtRange = (minMs, maxMs) => {
