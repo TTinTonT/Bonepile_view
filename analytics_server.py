@@ -857,6 +857,149 @@ def query_entries_in_range(start_ca: datetime, end_ca: datetime) -> List[sqlite3
             conn.close()
 
 
+# -----------------------------
+# MFG data (mfg_sn_data table from CSV sync)
+# -----------------------------
+
+MFG_TABLE = "mfg_sn_data"
+MFG_STATION_COLUMNS = ["FLA", "FLB", "FLC", "FLD", "FTS", "IOT", "RIN", "AST", "NVL", "FCT"]
+
+
+def _parse_mfg_time_to_ca_ms(s: str) -> Optional[int]:
+    """Parse start_testing_time/end_testing_time từ SQLite (giờ CA). Return epoch ms cho filter và thống kê theo ngày/giờ."""
+    if not s:
+        return None
+    s = str(s).strip()
+    try:
+        if "T" in s and ("Z" in s or "+00:00" in s):
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            if dt.tzinfo is not None:
+                dt = dt.replace(tzinfo=None)
+            dt = CA_TZ.localize(dt)
+        else:
+            if len(s) <= 16:
+                dt = datetime.strptime(s[:16], "%Y-%m-%d %H:%M")
+            else:
+                dt = datetime.strptime(s[:19], "%Y-%m-%d %H:%M:%S")
+            dt = CA_TZ.localize(dt)
+        return int(dt.timestamp() * 1000)
+    except Exception:
+        return None
+
+
+def _expand_mfg_row_to_entries(row: Dict[str, Any], ca_ms: int) -> List[Dict[str, Any]]:
+    """Expand one mfg_sn_data row (per-station p/f) into list of raw_entries-like dicts."""
+    sn = (row.get("SN") or "").strip()
+    part_number = (row.get("Partnumber") or "").strip() or "Unknown"
+    is_bp = 1 if (str(row.get("bonepile") or "").strip().lower() == "true") else 0
+    dt_ca = datetime.fromtimestamp(ca_ms / 1000.0, tz=CA_TZ)
+    ca_date = dt_ca.strftime("%Y-%m-%d")
+    ca_hour = dt_ca.hour
+    ca_week = dt_ca.strftime("%Y-%m-%d") + "~" + (dt_ca + timedelta(days=6 - dt_ca.weekday())).strftime("%Y-%m-%d")
+    ca_month = dt_ca.strftime("%Y-%m")
+
+    out: List[Dict[str, Any]] = []
+    for station in MFG_STATION_COLUMNS:
+        pf = (row.get(station) or "0/0").strip() or "0/0"
+        parts = pf.split("/")
+        try:
+            p = int(parts[0].strip()) if len(parts) > 0 else 0
+            f = int(parts[1].strip()) if len(parts) > 1 else 0
+        except (ValueError, IndexError):
+            p = f = 0
+        node_log_id = row.get("node_log_id")
+        last_station = (row.get("last_station") or "").strip()
+        for _ in range(p):
+            out.append({
+                "sn": sn,
+                "status": "P",
+                "station": station,
+                "part_number": part_number,
+                "is_bonepile": is_bp,
+                "ca_ms": ca_ms,
+                "utc_ms": ca_ms,
+                "ca_date": ca_date,
+                "ca_hour": ca_hour,
+                "ca_week": ca_week,
+                "ca_month": ca_month,
+                "filename": "mfg",
+                "folder_path": "",
+                "node_log_id": node_log_id,
+                "last_station": last_station,
+            })
+        for _ in range(f):
+            out.append({
+                "sn": sn,
+                "status": "F",
+                "station": station,
+                "part_number": part_number,
+                "is_bonepile": is_bp,
+                "ca_ms": ca_ms,
+                "utc_ms": ca_ms,
+                "ca_date": ca_date,
+                "ca_hour": ca_hour,
+                "ca_week": ca_week,
+                "ca_month": ca_month,
+                "filename": "mfg",
+                "folder_path": "",
+                "node_log_id": node_log_id,
+                "last_station": last_station,
+            })
+    return out
+
+
+def get_mfg_data_range_ca_ms() -> Tuple[Optional[int], Optional[int]]:
+    """Return (min_ca_ms, max_ca_ms) from mfg_sn_data start_testing_time."""
+    try:
+        conn = connect_db()
+        try:
+            cur = conn.execute(f"SELECT \"start_testing_time\" FROM {MFG_TABLE}")
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            return None, None
+        ms_list = []
+        for r in rows:
+            val = r[0] if hasattr(r, "__getitem__") else (r["start_testing_time"] if isinstance(r, dict) else None)
+            m = _parse_mfg_time_to_ca_ms(str(val or ""))
+            if m is not None:
+                ms_list.append(m)
+        if not ms_list:
+            return None, None
+        return min(ms_list), max(ms_list)
+    except sqlite3.OperationalError:
+        return None, None
+
+
+def get_mfg_rows_in_range(start_ca: datetime, end_ca: datetime) -> List[Dict[str, Any]]:
+    """
+    Read mfg_sn_data, filter by start_testing_time in [start_ca, end_ca], expand to raw_entries-like rows.
+    Thống kê theo ngày/giờ dựa trên thời điểm bắt đầu test (vd test 23:00 2/8 → 1:00 2/9 tính cho 2/8 23:00).
+    """
+    start_ms = utc_ms(start_ca if start_ca.tzinfo else CA_TZ.localize(start_ca))
+    end_ms = utc_ms(end_ca if end_ca.tzinfo else CA_TZ.localize(end_ca))
+    try:
+        conn = connect_db()
+        try:
+            cur = conn.execute(f"SELECT * FROM {MFG_TABLE}")
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        ca_ms = _parse_mfg_time_to_ca_ms(str(row.get("start_testing_time") or ""))
+        if ca_ms is None:
+            continue
+        if start_ms <= ca_ms <= end_ms:
+            out.extend(_expand_mfg_row_to_entries(row, ca_ms))
+    return out
+
+
 def cleanup_retention(now_ca: Optional[datetime] = None) -> Dict[str, Any]:
     """
     Delete cached raw entries older than RETENTION_DAYS (based on CA timestamp).
@@ -1166,10 +1309,18 @@ def compute_station_sn_list(
 
         last_ca_ms = int(best_key[0]) if best_key[0] >= 0 else None
         last_filename = best_row["filename"] if best_row else None
-        last_station = best_row["station"] if best_row else None
         last_part_number = best_row["part_number"] if best_row else None
         last_folder_path = best_row["folder_path"] if best_row else None
-        last_folder_id = os.path.basename(last_folder_path) if last_folder_path else None
+        if tests and tests[0].get("node_log_id") is not None:
+            last_station = (tests[0].get("last_station") or "").strip() or None
+            last_folder_id = str(tests[0].get("node_log_id")) if tests[0].get("node_log_id") is not None else None
+        else:
+            last_station = (best_row.get("last_station") or best_row.get("station") or "").strip() or None if best_row else None
+            last_folder_id = best_row.get("node_log_id")
+            if last_folder_id is not None:
+                last_folder_id = str(last_folder_id)
+            elif last_folder_path:
+                last_folder_id = os.path.basename(last_folder_path)
 
         out.append(
             {
@@ -1265,10 +1416,18 @@ def compute_station_sn_list_both(
         context_ms = int(context_key[0]) if context_key[0] >= 0 else None
 
         last_filename = context_row["filename"] if context_row else None
-        last_station = context_row["station"] if context_row else None
         last_part_number = context_row["part_number"] if context_row else None
         last_folder_path = context_row["folder_path"] if context_row else None
-        last_folder_id = os.path.basename(last_folder_path) if last_folder_path else None
+        if tests and tests[0].get("node_log_id") is not None:
+            last_station = (tests[0].get("last_station") or "").strip() or None
+            last_folder_id = str(tests[0].get("node_log_id")) if tests[0].get("node_log_id") is not None else None
+        else:
+            last_station = (context_row.get("last_station") or context_row.get("station") or "").strip() or None if context_row else None
+            last_folder_id = context_row.get("node_log_id")
+            if last_folder_id is not None:
+                last_folder_id = str(last_folder_id)
+            elif last_folder_path:
+                last_folder_id = os.path.basename(last_folder_path)
 
         out.append(
             {
@@ -1340,10 +1499,20 @@ def compute_sn_details(rows: List[sqlite3.Row]) -> List[Dict[str, Any]]:
 
         last_ca_ms = int(last_key[0]) if last_key[0] >= 0 else None
         last_filename = last_row["filename"] if last_row else None
-        last_station = last_row["station"] if last_row else None
         last_part_number = last_row["part_number"] if last_row else None
         last_folder_path = last_row["folder_path"] if last_row else None
-        last_folder_id = os.path.basename(last_folder_path) if last_folder_path else None
+        # MFG data: all expanded rows for same SN have same last_station/node_log_id from source; use them (don't pick from last_row which can be wrong when ca_ms+filename are equal).
+        if tests and tests[0].get("node_log_id") is not None:
+            last_station = (tests[0].get("last_station") or "").strip() or None
+            last_folder_id = tests[0].get("node_log_id")
+            last_folder_id = str(last_folder_id) if last_folder_id is not None else None
+        else:
+            last_station = (last_row.get("last_station") or last_row.get("station") or "").strip() or None if last_row else None
+            last_folder_id = last_row.get("node_log_id")
+            if last_folder_id is not None:
+                last_folder_id = str(last_folder_id)
+            elif last_folder_path:
+                last_folder_id = os.path.basename(last_folder_path)
 
         out.append(
             {
@@ -1969,6 +2138,17 @@ def api_bonepile_disposition_sn_list():
 
 @app.route("/api/scan", methods=["POST"])
 def api_scan():
+    """Manual scan: run MFG forward_scan (200 recent logs), update CSV and SQLite."""
+    try:
+        from mfg_scan import forward_scan
+        forward_scan()
+        return jsonify({"ok": True, "message": "Forward scan done."})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/scan_legacy", methods=["POST"])
+def api_scan_legacy():
     payload = request.json or {}
     start_dt = payload.get("start_datetime")
     end_dt = payload.get("end_datetime")
@@ -2016,15 +2196,10 @@ def api_query():
     if end_ca <= start_ca:
         return jsonify({"error": "end must be after start"}), 400
 
-    # IMPORTANT DESIGN CHANGE:
-    # Query must NEVER auto-trigger scans (that causes loops / "scan nonstop").
-    # Scanning is done by:
-    # - Manual scan button (/api/scan)
-    # - Background auto-scan loop
-    # Query returns whatever is currently in SQLite + a coverage flag.
+    # Data from MFG (mfg_sn_data). Filter by start_testing_time in range; stats by day/hour = thời điểm bắt đầu test.
     start_ms = utc_ms(start_ca)
     end_ms = utc_ms(end_ca)
-    data_min_ca_ms, data_max_ca_ms = get_db_data_range_ca_ms()
+    data_min_ca_ms, data_max_ca_ms = get_mfg_data_range_ca_ms()
     is_fully_covered = (
         data_min_ca_ms is not None
         and data_max_ca_ms is not None
@@ -2032,7 +2207,7 @@ def api_query():
         and end_ms <= int(data_max_ca_ms)
     )
 
-    rows = query_entries_in_range(start_ca, end_ca)
+    rows = get_mfg_rows_in_range(start_ca, end_ca)
     computed = compute_stats(rows, aggregation=aggregation)
     test_flow = compute_test_flow(rows)
     return jsonify(
@@ -3056,7 +3231,7 @@ def api_export():
         return err
     assert start_ca is not None and end_ca is not None
 
-    rows = query_entries_in_range(start_ca, end_ca)
+    rows = get_mfg_rows_in_range(start_ca, end_ca)
     computed = compute_stats(rows, aggregation=aggregation)
     test_flow = compute_test_flow(rows)
     details = compute_sn_details(rows)
@@ -3292,13 +3467,13 @@ def api_sn_list():
     if end_ca <= start_ca:
         return jsonify({"error": "end must be after start"}), 400
 
-    rows = query_entries_in_range(start_ca, end_ca)
+    rows = get_mfg_rows_in_range(start_ca, end_ca)
 
     # Optional: filter rows by requested bucket (time breakdown drilldown)
     if period and aggregation in ("daily", "weekly", "monthly"):
         key_field = {"daily": "ca_date", "weekly": "ca_week", "monthly": "ca_month"}[aggregation]
         try:
-            rows = [r for r in rows if (r[key_field] == period)]
+            rows = [r for r in rows if (r.get(key_field) == period)]
         except Exception:
             pass
 
@@ -3385,11 +3560,32 @@ def auto_scan_loop():
         time.sleep(float(AUTO_SCAN_EVERY_SECONDS))
 
 
+# MFG scan: forward_scan every N sec (optional; fails silently if mfg_scan not available)
+MFG_SCAN_EVERY_SECONDS = 300  # 5 min
+
+
+def mfg_forward_scan_loop():
+    try:
+        from mfg_scan import forward_scan, run_backfill
+        run_backfill()   # backward once on start
+        forward_scan()   # forward once on start
+    except Exception:
+        pass
+    while True:
+        try:
+            from mfg_scan import forward_scan
+            forward_scan()
+        except Exception:
+            pass
+        time.sleep(float(MFG_SCAN_EVERY_SECONDS))
+
+
 def main():
     ensure_db_ready(force=True)
 
-    t = threading.Thread(target=auto_scan_loop, daemon=True)
-    t.start()
+    # Data now from MFG (mfg_sn_data); old Oberon auto_scan_loop disabled.
+    t_mfg = threading.Thread(target=mfg_forward_scan_loop, daemon=True)
+    t_mfg.start()
 
     app.run(host="0.0.0.0", port=5555, debug=False)
 

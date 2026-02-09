@@ -813,8 +813,6 @@
         </div>
       </div>
       <div class="flex gap-3">
-        <button class="btn-ghost" id="clear-cache" type="button" style="border-color: rgba(239,68,68,.35); color: #ef4444;"> Clear Cache </button>
-        <button class="btn-ghost" id="refresh-page" type="button"> Refresh </button>
         <button class="btn-ghost" id="manual-scan" type="button"> Manual Scan </button>
         <button class="btn-primary" id="apply-filter" type="button">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
@@ -1245,13 +1243,12 @@
               <th>Result</th>
               <th>Pass Time (CA)</th>
               <th>Part Number</th>
-              <th>Station</th>
+              <th>Last Station</th>
               <th>Last Folder ID</th>
-              <th>Last Filename</th>
             </tr>
           </thead>
           <tbody id="sn-modal-tbody">
-            <tr><td colspan="7" style="color: var(--color-muted);">No data</td></tr>
+            <tr><td colspan="6" style="color: var(--color-muted);">No data</td></tr>
           </tbody>
         </table>
       </div>
@@ -2263,16 +2260,11 @@
        payload = getRangePayload();
      }
      if (forceScan) {
-       setLoading(true, 'Starting manual scan...');
-      setApiStatus('Manual scan requested...', 'busy');
-       const res = await fetch('/api/scan', {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ start_datetime: payload.start_datetime, end_datetime: payload.end_datetime })
-       });
+       setLoading(true, 'Running MFG forward scan (200 recent logs)...');
+       setApiStatus('Manual scan...', 'busy');
+       const res = await fetch('/api/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
        const scan = await res.json();
-       if (scan.error) throw new Error(scan.error);
-       await pollJob(scan.job_id);
+       if (!res.ok || !scan.ok) throw new Error(scan.error || scan.message || 'Scan failed');
      }
 
      setLoading(true, 'Loading data...');
@@ -2316,7 +2308,7 @@
      const tbody = document.getElementById('sn-modal-tbody');
      if (!tbody) return;
      if (!rows || !rows.length) {
-       tbody.innerHTML = `<tr><td colspan="7" style="color: var(--color-muted);">No data</td></tr>`;
+       tbody.innerHTML = `<tr><td colspan="6" style="color: var(--color-muted);">No data</td></tr>`;
        return;
      }
      tbody.innerHTML = rows.map(r => {
@@ -2330,7 +2322,6 @@
            <td class="font-mono font-semibold">${(r.last_part_number || 'Unknown')}</td>
            <td class="font-mono">${(r.last_station || '-')}</td>
            <td class="font-mono">${(r.last_folder_id || '-')}</td>
-           <td class="font-mono">${(r.last_filename || '-')}</td>
          </tr>
        `;
      }).join('');
@@ -2485,10 +2476,6 @@
    ['start-date','end-date','start-time','end-time'].forEach((id) => {
      const el = document.getElementById(id);
      if (el) el.addEventListener('change', () => applyFilter());
-   });
-
-   safeAddListener('refresh-page', 'click', () => {
-     location.reload();
    });
 
   // Export buttons
@@ -2686,23 +2673,6 @@
       setApiStatus('Error: ' + err.message, 'err');
        alert('Error: ' + err.message);
      });
-   });
-
-   safeAddListener('clear-cache', 'click', async () => {
-     try {
-       if (!confirm('Clear cache will delete local analytics cache and rescan from scratch. Continue?')) return;
-       setLoading(true, 'Clearing cache...');
-       const res = await fetch('/api/clear-cache', { method: 'POST' });
-       const data = await res.json();
-       if (data.error) throw new Error(data.error);
-       await refreshCacheCoverage();
-       setLoading(false);
-       alert('Cache cleared. Now run Manual Scan or Apply Filter to rebuild.');
-     } catch (err) {
-       console.error(err);
-       setLoading(false);
-       alert('Error: ' + (err?.message || err));
-     }
    });
 
   const onAggClick = (a) => {
