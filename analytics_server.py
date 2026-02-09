@@ -47,7 +47,8 @@ STATE_PATH = os.path.join(ANALYTICS_CACHE_DIR, "raw_state.json")
 
 # Uploaded NV/IGS bonepile workbook (single file; replaced on each upload)
 BONEPILE_UPLOAD_PATH = os.path.join(ANALYTICS_CACHE_DIR, "bonepile_upload.xlsx")
-BONEPILE_ALLOWED_SHEETS = ["VR-TS1", "TS2-SKU002", "TS2-SKU010"]
+# Sheets to process (block-list style: only these are allowed; all others ignored)
+BONEPILE_ALLOWED_SHEETS = ["TS2-SKU1100", "VR-TS1", "TS2-SKU002", "TS2-SKU010"]
 BONEPILE_REQUIRED_FIELDS = ["sn", "nv_disposition", "status", "pic", "igs_action", "igs_status"]
 
 # Excel export templates (formatting preserved in exported XLSX)
