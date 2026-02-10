@@ -25,7 +25,7 @@ import io
 import shutil
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import pytz
 from flask import Flask, Response, jsonify, render_template, request
@@ -49,9 +49,73 @@ STATE_PATH = os.path.join(ANALYTICS_CACHE_DIR, "raw_state.json")
 
 # Uploaded NV/IGS bonepile workbook (single file; replaced on each upload)
 BONEPILE_UPLOAD_PATH = os.path.join(ANALYTICS_CACHE_DIR, "bonepile_upload.xlsx")
+# Cache of BP SNs from NV disposition sheets: only add, never delete (used for is_bonepile)
+BP_SN_CACHE_PATH = os.path.join(ANALYTICS_CACHE_DIR, "bp_sn_cache.json")
 # Sheets to process (block-list style: only these are allowed; all others ignored)
 BONEPILE_ALLOWED_SHEETS = ["TS2-SKU1100", "VR-TS1", "TS2-SKU002", "TS2-SKU010"]
 BONEPILE_REQUIRED_FIELDS = ["sn", "nv_disposition", "status", "pic", "igs_action", "igs_status"]
+
+# BP SN cache: load set (read-only) and merge new SNs (never delete)
+_bp_sn_cache_lock = threading.Lock()
+_bp_sn_cache_set: Optional[Set[str]] = None
+
+
+def load_bp_sn_set() -> Set[str]:
+    """Load set of BP SNs from cache file. Returns empty set if file missing or invalid."""
+    global _bp_sn_cache_set
+    with _bp_sn_cache_lock:
+        if _bp_sn_cache_set is not None:
+            return set(_bp_sn_cache_set)
+    try:
+        if not os.path.isfile(BP_SN_CACHE_PATH):
+            return set()
+        with open(BP_SN_CACHE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        sns = data.get("sns") if isinstance(data, dict) else None
+        if not isinstance(sns, list):
+            return set()
+        out = set(str(s).strip() for s in sns if s and str(s).strip())
+    except Exception:
+        out = set()
+    with _bp_sn_cache_lock:
+        _bp_sn_cache_set = out
+    return set(out)
+
+
+def update_bp_sn_cache(new_sns: Iterable[str]) -> None:
+    """Merge new_sns into BP cache file. Never removes existing SNs."""
+    global _bp_sn_cache_set
+    new_set = set(str(s).strip() for s in new_sns if s and str(s).strip())
+    if not new_set:
+        return
+    os.makedirs(ANALYTICS_CACHE_DIR, exist_ok=True)
+    with _bp_sn_cache_lock:
+        current: Set[str] = set()
+        if os.path.isfile(BP_SN_CACHE_PATH):
+            try:
+                with open(BP_SN_CACHE_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                sns = data.get("sns") if isinstance(data, dict) else None
+                if isinstance(sns, list):
+                    current = set(str(s).strip() for s in sns if s and str(s).strip())
+            except Exception:
+                pass
+        current.update(new_set)
+        _bp_sn_cache_set = set(current)
+        data = {"sns": sorted(current), "last_updated_ca_ms": int(time.time() * 1000)}
+        try:
+            with open(BP_SN_CACHE_PATH, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=0)
+        except Exception:
+            pass
+
+
+def invalidate_bp_sn_cache() -> None:
+    """Clear in-memory cache so next load_bp_sn_set() reads from file."""
+    global _bp_sn_cache_set
+    with _bp_sn_cache_lock:
+        _bp_sn_cache_set = None
+
 
 # Excel export templates (formatting preserved in exported XLSX)
 TEMPLATES_DIR = os.path.join(APP_DIR, "templates")
@@ -511,6 +575,8 @@ class RawState:
     last_scan_ca_ms: Optional[int] = None
     # Record full-day rescan runs by hour -> YYYY-MM-DD (CA) to avoid repeating after restarts.
     full_day_runs: Optional[Dict[str, str]] = None
+    # TW dates (YYYY-MM-DD) already scanned; skip re-scan for dates <= (today - 2 days)
+    scanned_tw_dates: Optional[List[str]] = None
     # NV/IGS workbook upload + mapping + parse status
     bonepile_file: Optional[Dict[str, Any]] = None
     bonepile_mapping: Optional[Dict[str, Any]] = None  # per-sheet mapping config
@@ -532,6 +598,7 @@ class RawState:
                 max_path=data.get("max_path"),
                 last_scan_ca_ms=data.get("last_scan_ca_ms"),
                 full_day_runs=data.get("full_day_runs") if isinstance(data.get("full_day_runs"), dict) else None,
+                scanned_tw_dates=data.get("scanned_tw_dates") if isinstance(data.get("scanned_tw_dates"), list) else None,
                 bonepile_file=data.get("bonepile_file") if isinstance(data.get("bonepile_file"), dict) else None,
                 bonepile_mapping=data.get("bonepile_mapping") if isinstance(data.get("bonepile_mapping"), dict) else None,
                 bonepile_sheet_status=data.get("bonepile_sheet_status")
@@ -552,6 +619,7 @@ class RawState:
             "max_path": self.max_path,
             "last_scan_ca_ms": self.last_scan_ca_ms,
             "full_day_runs": self.full_day_runs or None,
+            "scanned_tw_dates": self.scanned_tw_dates or None,
             "bonepile_file": self.bonepile_file or None,
             "bonepile_mapping": self.bonepile_mapping or None,
             "bonepile_sheet_status": self.bonepile_sheet_status or None,
@@ -670,6 +738,12 @@ def scan_range(start_ca: datetime, end_ca: datetime, state: RawState) -> Dict[st
         return {"ok": False, "error": "end must be after start"}
 
     tw_dates = ca_range_to_tw_dates(start_ca, end_ca)
+    # Skip days already scanned when date <= (today - 2 days); always scan last 2 days (avoid missing 23:59 data)
+    cutoff_date = now_ca.date() - timedelta(days=2)
+    scanned_set = set(state.scanned_tw_dates or [])
+    tw_dates_to_scan = [d for d in tw_dates if d > cutoff_date or d.isoformat() not in scanned_set]
+    skipped_days = len(tw_dates) - len(tw_dates_to_scan)
+
     new_rows = 0
     seen_min_key = state.min_key
     seen_max_key = state.max_key
@@ -684,6 +758,7 @@ def scan_range(start_ca: datetime, end_ca: datetime, state: RawState) -> Dict[st
     parsed_ok = 0
     ts_ok = 0
     in_range = 0
+    bp_sn_set = load_bp_sn_set()
 
     def flush():
         nonlocal batch, new_rows
@@ -693,7 +768,7 @@ def scan_range(start_ca: datetime, end_ca: datetime, state: RawState) -> Dict[st
         new_rows += int(inserted)
         batch = []
 
-    for tw_date in tw_dates:
+    for tw_date in tw_dates_to_scan:
         for folder_path, fn in iter_zip_files_for_tw_date(tw_date):
             visited_zip += 1
             parsed = parse_test_filename(fn)
@@ -710,7 +785,9 @@ def scan_range(start_ca: datetime, end_ca: datetime, state: RawState) -> Dict[st
                 continue
             in_range += 1
 
-            is_bp, pb_id = parse_source_token(fn)
+            # BP from disposition cache (NV sheet SNs), not filename token
+            is_bp = 1 if sn in bp_sn_set else 0
+            pb_id = None
             key = (int(utc_ms(utc_dt)), fn)
             # Track min/max key/path for state
             if seen_min_key is None or key < seen_min_key:
@@ -754,11 +831,15 @@ def scan_range(start_ca: datetime, end_ca: datetime, state: RawState) -> Dict[st
     state.min_path = seen_min_path
     state.max_path = seen_max_path
     state.last_scan_ca_ms = utc_ms(datetime.now(CA_TZ))
+    # Merge scanned dates so we skip them next time (only for dates <= cutoff)
+    new_scanned = {d.isoformat() for d in tw_dates_to_scan}
+    state.scanned_tw_dates = sorted(set(scanned_set | new_scanned))
     state.save()
 
     return {
         "ok": True,
-        "scanned_tw_days": len(tw_dates),
+        "scanned_tw_days": len(tw_dates_to_scan),
+        "skipped_tw_days": skipped_days,
         "inserted": new_rows,
         "counters": {
             "visited_zip": visited_zip,
@@ -894,10 +975,11 @@ def _parse_mfg_time_to_ca_ms(s: str) -> Optional[int]:
 def _expand_mfg_row_to_entries(row: Dict[str, Any], ca_ms: int) -> List[Dict[str, Any]]:
     """Expand one mfg_sn_data row (per-station p/f) into list of raw_entries-like dicts.
     Adds source_status (Pass/Fail from mfg row) so dashboard uses latest log result, not 'any final pass'.
+    is_bonepile from BP SN cache (NV disposition sheets), not MFG bonepile column.
     """
     sn = (row.get("SN") or "").strip()
     part_number = (row.get("Partnumber") or "").strip() or "Unknown"
-    is_bp = 1 if (str(row.get("bonepile") or "").strip().lower() == "true") else 0
+    is_bp = 1 if sn in load_bp_sn_set() else 0
     dt_ca = datetime.fromtimestamp(ca_ms / 1000.0, tz=CA_TZ)
     ca_date = dt_ca.strftime("%Y-%m-%d")
     ca_hour = dt_ca.hour
@@ -1688,6 +1770,7 @@ def run_bonepile_parse_job(job_id: str, sheets: Optional[List[str]] = None, path
 
             mapping_cfg = (state.bonepile_mapping or {})
             sheet_status: Dict[str, Any] = state.bonepile_sheet_status or {}
+            bp_sns_this_run: Set[str] = set()
 
             conn = connect_db()
             try:
@@ -1778,6 +1861,7 @@ def run_bonepile_parse_job(job_id: str, sheets: Optional[List[str]] = None, path
                                 break
                             continue
                         empty_sn_streak = 0
+                        bp_sns_this_run.add(sn)
 
                         def cell(idx: int) -> str:
                             if idx <= 0 or idx > len(row):
@@ -1840,6 +1924,10 @@ def run_bonepile_parse_job(job_id: str, sheets: Optional[List[str]] = None, path
                 _close_and_release_workbook(wb)
                 wb = None
             _remove_temp_file(parse_path)
+
+        # Merge SNs from this parse into BP cache (never delete existing)
+        if bp_sns_this_run:
+            update_bp_sn_cache(bp_sns_this_run)
 
         set_job(job_id, status="done", message="Workbook parsed", finished_at=int(time.time()))
     except Exception as e:
