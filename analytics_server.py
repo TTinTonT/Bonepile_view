@@ -20,7 +20,9 @@ import sqlite3
 import threading
 import time
 import csv
+import gc
 import io
+import shutil
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -1598,17 +1600,56 @@ def _bonepile_status_payload(state: RawState) -> Dict[str, Any]:
     }
 
 
+def _copy_for_parse(dest_path: str) -> bool:
+    """Copy BONEPILE_UPLOAD_PATH to dest_path. Returns True on success."""
+    try:
+        shutil.copy2(BONEPILE_UPLOAD_PATH, dest_path)
+        return True
+    except Exception:
+        return False
+
+
+def _close_and_release_workbook(wb) -> None:
+    """Đóng workbook và ép release file handle (openpyxl read_only giữ handle đến khi GC). Gọi xong nên gán wb = None ở caller."""
+    if wb is None:
+        return
+    try:
+        wb.close()
+    except Exception:
+        pass
+    gc.collect()
+    time.sleep(0.5)
+
+
+def _remove_temp_file(path: str) -> None:
+    """Xóa file tạm sau khi đã release handle; retry nhiều lần (Windows release chậm)."""
+    if not path or not os.path.exists(path):
+        return
+    for _ in range(20):
+        try:
+            os.remove(path)
+            return
+        except OSError:
+            time.sleep(0.3)
+
+
 def _save_uploaded_bonepile_file(file_storage) -> Dict[str, Any]:
     ensure_dirs()
-    # Replace existing file atomically
     tmp_path = BONEPILE_UPLOAD_PATH + ".tmp"
     file_storage.save(tmp_path)
-    if os.path.exists(BONEPILE_UPLOAD_PATH):
+    dest = BONEPILE_UPLOAD_PATH
+    for attempt in range(5):
         try:
-            os.remove(BONEPILE_UPLOAD_PATH)
-        except Exception:
-            pass
-    os.replace(tmp_path, BONEPILE_UPLOAD_PATH)
+            if os.path.exists(dest):
+                os.remove(dest)
+            os.replace(tmp_path, dest)
+            break
+        except OSError as e:
+            if attempt == 4:
+                raise RuntimeError(
+                    "Could not replace file. Close any app that has bonepile_upload.xlsx open, then try again. " + str(e)
+                ) from e
+            time.sleep(0.3 * (attempt + 1))
     stat = os.stat(BONEPILE_UPLOAD_PATH)
     now = datetime.now(CA_TZ).replace(microsecond=0)
     return {
@@ -1620,21 +1661,26 @@ def _save_uploaded_bonepile_file(file_storage) -> Dict[str, Any]:
     }
 
 
-def run_bonepile_parse_job(job_id: str, sheets: Optional[List[str]] = None) -> None:
+def run_bonepile_parse_job(job_id: str, sheets: Optional[List[str]] = None, path: Optional[str] = None) -> None:
     """
-    Parse the uploaded NV/IGS workbook for allowed sheets.
-    - Per-sheet: auto-detect header by 'SN' and map columns by header names unless user saved mapping.
-    - Writes rows into SQLite bonepile_entries (replaces per-sheet).
-    - Updates RawState.bonepile_sheet_status with ok/error for each sheet.
+    Parse the uploaded NV/IGS workbook. Luôn đọc từ bản copy (không mở file chính), parse xong đóng và xóa copy.
     """
+    parse_path = path
+    if not parse_path:
+        if not os.path.exists(BONEPILE_UPLOAD_PATH):
+            raise RuntimeError("No uploaded bonepile workbook found")
+        parse_path = os.path.join(ANALYTICS_CACHE_DIR, "bonepile_parse_" + job_id + ".xlsx")
+        if not _copy_for_parse(parse_path):
+            raise RuntimeError("Could not copy workbook for parse (file may be in use)")
     try:
         set_job(job_id, status="running", message="Parsing workbook...", started_at=int(time.time()))
         ensure_db_ready()
         with scan_lock:
             state = RawState.load()
-        if not os.path.exists(BONEPILE_UPLOAD_PATH):
+        if not os.path.exists(parse_path):
             raise RuntimeError("No uploaded bonepile workbook found")
-        wb = _load_bonepile_workbook(BONEPILE_UPLOAD_PATH)
+        wb = None
+        wb = _load_bonepile_workbook(parse_path)
         try:
             all_sheets = list(wb.sheetnames)
             allowed = [s for s in BONEPILE_ALLOWED_SHEETS if s in all_sheets]
@@ -1790,14 +1836,15 @@ def run_bonepile_parse_job(job_id: str, sheets: Optional[List[str]] = None) -> N
             finally:
                 conn.close()
         finally:
-            try:
-                wb.close()
-            except Exception:
-                pass
+            if wb is not None:
+                _close_and_release_workbook(wb)
+                wb = None
+            _remove_temp_file(parse_path)
 
         set_job(job_id, status="done", message="Workbook parsed", finished_at=int(time.time()))
     except Exception as e:
         set_job(job_id, status="error", error=str(e), finished_at=int(time.time()))
+        _remove_temp_file(parse_path)
         with scan_lock:
             st = RawState.load()
             ss = st.bonepile_sheet_status or {}
@@ -1965,48 +2012,57 @@ def api_bonepile_upload():
     """
     Upload NV/IGS workbook. The backend stores only the latest file (replaces previous).
     After upload, automatically parse all allowed sheets with auto-detect.
-    Sheets with unchanged content (hash match) will be skipped.
+    Luôn trả JSON (kể cả khi lỗi) để client không bị "Unexpected token '<'" khi server 500.
     """
-    ensure_db_ready()
-    if openpyxl is None:
-        return jsonify({"error": "openpyxl not installed; cannot accept XLSX"}), 500
-    if "file" not in request.files:
-        return jsonify({"error": "file is required"}), 400
-    f = request.files["file"]
-    if not f or not getattr(f, "filename", ""):
-        return jsonify({"error": "no file selected"}), 400
-    name = str(f.filename)
-    if not name.lower().endswith(".xlsx"):
-        return jsonify({"error": "only .xlsx is supported for bonepile upload"}), 400
+    try:
+        ensure_db_ready()
+        if openpyxl is None:
+            return jsonify({"error": "openpyxl not installed; cannot accept XLSX"}), 500
+        if "file" not in request.files:
+            return jsonify({"error": "file is required"}), 400
+        f = request.files["file"]
+        if not f or not getattr(f, "filename", ""):
+            return jsonify({"error": "no file selected"}), 400
+        name = str(f.filename)
+        if not name.lower().endswith(".xlsx"):
+            return jsonify({"error": "only .xlsx is supported for bonepile upload"}), 400
 
-    with scan_lock:
-        state = RawState.load()
-        meta = _save_uploaded_bonepile_file(f)
-        state.bonepile_file = meta
-        # Keep existing sheet status (for hash comparison)
-        state.bonepile_sheet_status = state.bonepile_sheet_status or {}
-        state.save()
+        with scan_lock:
+            state = RawState.load()
+            meta = _save_uploaded_bonepile_file(f)
+            state.bonepile_file = meta
+            state.bonepile_sheet_status = state.bonepile_sheet_status or {}
+            state.save()
 
-    # Auto-parse all allowed sheets (with auto-detect, hash check will skip unchanged sheets)
-    job_id = new_job_id()
-    set_job(job_id, status="queued", message="Auto-parsing all sheets with auto-detect...")
-    t = threading.Thread(target=run_bonepile_parse_job, args=(job_id, None), daemon=True)
-    t.start()
-    return jsonify({"ok": True, "job_id": job_id, "bonepile_file": meta})
+        job_id = new_job_id()
+        parse_copy = os.path.join(ANALYTICS_CACHE_DIR, "bonepile_parse_" + job_id + ".xlsx")
+        if not _copy_for_parse(parse_copy):
+            return jsonify({"error": "Upload ok but could not start parse (file in use?)"}), 500
+        set_job(job_id, status="queued", message="Auto-parsing all sheets with auto-detect...")
+        t = threading.Thread(target=run_bonepile_parse_job, args=(job_id, None), kwargs={"path": parse_copy}, daemon=True)
+        t.start()
+        return jsonify({"ok": True, "job_id": job_id, "bonepile_file": meta})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/bonepile/sheets")
 def api_bonepile_sheets():
     """
-    Return sheet list, ignore list, and auto-detected header/mapping suggestion for allowed sheets.
+    Return sheet list. Đọc từ bản copy, đóng và xóa copy ngay (không giữ file chính mở).
     """
     if openpyxl is None:
         return jsonify({"error": "openpyxl not installed; cannot read XLSX"}), 500
     state = RawState.load()
     if not os.path.exists(BONEPILE_UPLOAD_PATH):
         return jsonify({"ok": True, "has_file": False, "allowed": BONEPILE_ALLOWED_SHEETS, "ignored": [], "sheets": {}})
-    wb = _load_bonepile_workbook(BONEPILE_UPLOAD_PATH)
+    import tempfile
+    fd, copy_path = tempfile.mkstemp(suffix=".xlsx", prefix="bonepile_sheets_", dir=ANALYTICS_CACHE_DIR)
+    os.close(fd)
+    wb = None
     try:
+        shutil.copy2(BONEPILE_UPLOAD_PATH, copy_path)
+        wb = _load_bonepile_workbook(copy_path)
         all_sheets = list(wb.sheetnames)
         ignored = [s for s in all_sheets if s not in BONEPILE_ALLOWED_SHEETS]
         out: Dict[str, Any] = {}
@@ -2029,11 +2085,13 @@ def api_bonepile_sheets():
                 "status": (state.bonepile_sheet_status or {}).get(sheet),
             }
         return jsonify({"ok": True, "has_file": True, "allowed": BONEPILE_ALLOWED_SHEETS, "ignored": ignored, "sheets": out})
+    except Exception as e:
+        return jsonify({"error": "Failed to read workbook: " + str(e)}), 500
     finally:
-        try:
-            wb.close()
-        except Exception:
-            pass
+        if wb is not None:
+            _close_and_release_workbook(wb)
+            wb = None
+        _remove_temp_file(copy_path)
 
 
 @app.route("/api/bonepile/mapping", methods=["POST"])
@@ -2059,10 +2117,12 @@ def api_bonepile_mapping():
         state.bonepile_mapping[sheet] = {"header_row": int(header_row), "columns": columns}
         state.save()
 
-    # Trigger re-parse just this sheet in background
     job_id = new_job_id()
+    parse_copy = os.path.join(ANALYTICS_CACHE_DIR, "bonepile_parse_" + job_id + ".xlsx")
+    if not os.path.exists(BONEPILE_UPLOAD_PATH) or not _copy_for_parse(parse_copy):
+        return jsonify({"error": "Could not copy workbook for parse (file missing or in use)"}), 500
     set_job(job_id, status="queued", message=f"Parsing {sheet}...")
-    t = threading.Thread(target=run_bonepile_parse_job, args=(job_id, [sheet]), daemon=True)
+    t = threading.Thread(target=run_bonepile_parse_job, args=(job_id, [sheet]), kwargs={"path": parse_copy}, daemon=True)
     t.start()
     return jsonify({"ok": True, "job_id": job_id})
 
@@ -2082,8 +2142,11 @@ def api_bonepile_parse():
             return jsonify({"error": "invalid sheet"}), 400
         sheets = [sheet]
     job_id = new_job_id()
+    parse_copy = os.path.join(ANALYTICS_CACHE_DIR, "bonepile_parse_" + job_id + ".xlsx")
+    if not os.path.exists(BONEPILE_UPLOAD_PATH) or not _copy_for_parse(parse_copy):
+        return jsonify({"error": "Could not copy workbook for parse (file missing or in use)"}), 500
     set_job(job_id, status="queued", message="Bonepile parse queued")
-    t = threading.Thread(target=run_bonepile_parse_job, args=(job_id, sheets), daemon=True)
+    t = threading.Thread(target=run_bonepile_parse_job, args=(job_id, sheets), kwargs={"path": parse_copy}, daemon=True)
     t.start()
     return jsonify({"ok": True, "job_id": job_id})
 

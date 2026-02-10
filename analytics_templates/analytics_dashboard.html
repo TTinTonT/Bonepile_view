@@ -1903,8 +1903,10 @@
        const fd = new FormData();
        fd.append('file', file);
        const res = await fetch('/api/bonepile/upload', { method: 'POST', body: fd });
-       const data = await res.json();
-       if (!res.ok || data.error) throw new Error(data.error || 'Upload failed');
+       const text = await res.text();
+       let data = {};
+       try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+       if (!res.ok || data.error) throw new Error(data.error || text || 'Upload failed');
        
        if (data.job_id) {
          // Auto-parse all sheets (with auto-detect, hash check will skip unchanged sheets)
