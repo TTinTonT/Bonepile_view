@@ -121,6 +121,7 @@ def invalidate_bp_sn_cache() -> None:
 TEMPLATES_DIR = os.path.join(APP_DIR, "templates")
 SKU_SUMMARY_TEMPLATE_PATH = os.path.join(TEMPLATES_DIR, "SKU_Summary.xlsx")
 TRAY_SUMMARY_TEMPLATE_PATH = os.path.join(TEMPLATES_DIR, "Tray_Summary_Template.xlsx")
+SKU_DISPO_TEMPLATE_PATH = os.path.join(TEMPLATES_DIR, "SKU_Dispo.xlsx")
 
 CA_TZ = pytz.timezone("America/Los_Angeles")
 TW_TZ = pytz.timezone("Asia/Taipei")
@@ -2556,6 +2557,7 @@ def _build_export_xlsx(
         # Template has data rows 3-6 (4 rows). For additional SKUs beyond row 6, copy style from row 3
         first_data_row = 3
         template_last_data_row = 5
+        template_data_row_count = 4  # rows 3-6
         for i, r in enumerate(sku_rows):
             row_num = first_data_row + i
             ws.cell(row=row_num, column=1, value=r.get("sku") or "")
@@ -2568,12 +2570,90 @@ def _build_export_xlsx(
                     src_cell = ws.cell(row=first_data_row, column=col)
                     tgt_cell = ws.cell(row=row_num, column=col)
                     _copy_cell_style(src_cell, tgt_cell)
+        # Remove unused template rows when data has fewer than 4 SKUs
+        num_used = len(sku_rows)
+        if num_used < template_data_row_count:
+            first_unused = first_data_row + num_used
+            num_to_delete = template_data_row_count - num_used
+            ws.delete_rows(first_unused, num_to_delete)
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
         return buf.read(), f"sku_{start_s}_to_{end_s}.xlsx"
 
     raise ValueError(f"Unsupported export_kind for XLSX: {export_kind}")
+
+
+def _build_dispo_sku_xlsx(
+    dispo_data: Dict[str, Any],
+    start_ca: datetime,
+    end_ca: datetime,
+) -> Tuple[bytes, str]:
+    """
+    Build XLSX for Disposition By SKU.
+    B1 = date range (start to end). Row 2 = headers. Row 3+ = one row per SKU: A=partnumber, B=total, C=complete, D=waiting.
+    Uses template SKU_Dispo.xlsx if present; otherwise creates workbook from scratch.
+    """
+    if openpyxl is None:
+        raise RuntimeError("openpyxl is not installed; cannot export XLSX")
+
+    by_sku = dispo_data.get("by_sku") or []
+    start_str = start_ca.strftime("%Y-%m-%d %H:%M")
+    end_str = end_ca.strftime("%Y-%m-%d %H:%M")
+    date_range_str = f"From {start_str} to {end_str}"
+
+    if os.path.isfile(SKU_DISPO_TEMPLATE_PATH):
+        wb = openpyxl.load_workbook(SKU_DISPO_TEMPLATE_PATH)
+        ws = wb.active
+    else:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Disposition By SKU"
+        ws.cell(row=2, column=1, value="Part Number")
+        ws.cell(row=2, column=2, value="Dispositions")
+        ws.cell(row=2, column=3, value="Complete")
+        ws.cell(row=2, column=4, value="Waiting")
+
+    ws.cell(row=1, column=2, value=date_range_str)
+
+    first_data_row = 3
+    for i, row in enumerate(by_sku):
+        r = first_data_row + i
+        ws.cell(row=r, column=1, value=row.get("sku") or "")
+        ws.cell(row=r, column=2, value=row.get("total") or 0)
+        ws.cell(row=r, column=3, value=row.get("complete") or 0)
+        ws.cell(row=r, column=4, value=row.get("waiting_igs") or 0)
+        # Copy style from row 3 to all data rows so formatting (fill, alignment) is consistent
+        if r > first_data_row:
+            for col in range(1, 5):
+                src_cell = ws.cell(row=first_data_row, column=col)
+                tgt_cell = ws.cell(row=r, column=col)
+                _copy_cell_style(src_cell, tgt_cell)
+
+    # Apply same format to column E (Status) for all data rows – copy from column A so E has fill/alignment
+    for i in range(len(by_sku)):
+        r = first_data_row + i
+        src_cell = ws.cell(row=r, column=1)
+        tgt_cell = ws.cell(row=r, column=5)
+        _copy_cell_style(src_cell, tgt_cell)
+
+    # Auto-adjust column widths (expand if content is long)
+    for col_idx, col_letter in enumerate(["A", "B", "C", "D", "E"], start=1):
+        max_len = 12
+        for r in range(1, first_data_row + len(by_sku) + 1):
+            val = ws.cell(row=r, column=col_idx).value
+            if val is not None:
+                max_len = max(max_len, len(str(val)) + 1)
+        max_len = min(50, max_len)
+        current = ws.column_dimensions[col_letter].width if col_letter in ws.column_dimensions and ws.column_dimensions[col_letter].width else 0
+        ws.column_dimensions[col_letter].width = max(current, max_len)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    start_s = start_ca.strftime("%Y%m%d_%H%M")
+    end_s = end_ca.strftime("%Y%m%d_%H%M")
+    return buf.read(), f"Disposition_By_SKU_{start_s}_to_{end_s}.xlsx"
 
 
 def _excel_text_cell(value: Any) -> str:
@@ -3425,6 +3505,17 @@ def api_export():
             return _xlsx_response(data_xlsx, filename)
         except FileNotFoundError as e:
             return jsonify({"error": str(e)}), 404
+        except Exception as e:
+            return jsonify({"error": f"XLSX export failed: {str(e)}"}), 500
+
+    # Handle XLSX export for Disposition By SKU
+    if export_format == "xlsx" and export_kind == "disposition_by_sku":
+        try:
+            start_ca_ms = utc_ms(start_ca)
+            end_ca_ms = utc_ms(end_ca)
+            dispo_data = compute_disposition_stats(aggregation="daily", start_ca_ms=start_ca_ms, end_ca_ms=end_ca_ms)
+            data_xlsx, filename = _build_dispo_sku_xlsx(dispo_data, start_ca, end_ca)
+            return _xlsx_response(data_xlsx, filename)
         except Exception as e:
             return jsonify({"error": f"XLSX export failed: {str(e)}"}), 500
 
