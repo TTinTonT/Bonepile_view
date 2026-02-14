@@ -140,6 +140,7 @@ TIMESTAMP_MODE = "ca_local_suffix_v3"
 # Final pass rules
 PASS_AT_FCT_PART_NUMBERS = {
     "675-24109-0010-TS2",
+    "675-24109-0020-TS2",
 }
 
 
